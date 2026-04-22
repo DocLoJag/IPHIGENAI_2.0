@@ -28,8 +28,9 @@ export function curatorQueue(): Queue<CuratorJobData> {
 }
 
 export async function enqueueCuratorJob(data: CuratorJobData): Promise<void> {
-  // exactly-once per sessione: jobId = sessionId. Se già in coda, BullMQ lo scarta.
-  await curatorQueue().add('run-curator', data, { jobId: `curator:${data.sessionId}` });
+  // exactly-once per sessione: jobId deterministico su sessionId. Se già in coda, BullMQ lo scarta.
+  // BullMQ 5 non accetta ':' nei custom jobId — usiamo '-' come separatore.
+  await curatorQueue().add('run-curator', data, { jobId: `curator-${data.sessionId}` });
 
   await db.insert(jobLog).values({
     jobName: 'curator:run-curator',

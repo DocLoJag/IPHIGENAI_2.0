@@ -6,6 +6,7 @@ import { students, users } from '../db/schema.js';
 import { hashPassword } from '../auth/passwords.js';
 import { conflict, notFound } from '../lib/errors.js';
 import { id as mkId } from '../lib/ids.js';
+import { seedDemo } from '../seed/run.js';
 
 const createBody = z.object({
   role: z.enum(['student', 'tutor', 'admin']),
@@ -138,5 +139,16 @@ export default async function adminRoutes(app: FastifyInstance) {
       .set({ disabledAt: new Date() })
       .where(and(eq(users.id, u.id), isNull(users.disabledAt)));
     return { ok: true };
+  });
+
+  // POST /admin/reset-demo
+  // Riporta il DB (Postgres + Mongo) allo stato del seed demo iniziale.
+  // Distruttivo: TRUNCATE + re-insert. Richiede ruolo admin.
+  // Serve per il pilota, per rimettere la sessione di test di Luca in "paused"
+  // dopo averla completata durante una demo.
+  app.post('/admin/reset-demo', guard, async (req) => {
+    req.log.warn({ actor: req.principal?.sub }, 'RESET demo data richiesto');
+    await seedDemo();
+    return { ok: true, reset_at: new Date().toISOString() };
   });
 }

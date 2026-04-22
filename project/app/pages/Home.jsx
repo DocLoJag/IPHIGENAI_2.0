@@ -33,7 +33,16 @@ function HomePage({ user, showToast }) {
               <span className="hand small muted">preparato da Chiara</span>
             </div>
             {upcoming.map((a) => (
-              <div key={a.id} className="article-row" onClick={() => showToast(`"${a.title}" — demo`)}>
+              <div
+                key={a.id}
+                className="article-row"
+                onClick={() =>
+                  a.linked_session_id
+                    ? navigate(`/session/${a.linked_session_id}`)
+                    : showToast(`"${a.title}" — apertura diretta in arrivo`)
+                }
+                style={{ cursor: 'pointer' }}
+              >
                 <div className="article-row__thumb placeholder">
                   {a.subject.slice(0, 4)}
                 </div>

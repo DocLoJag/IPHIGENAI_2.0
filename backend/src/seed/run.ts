@@ -43,8 +43,16 @@ async function wipe(): Promise<void> {
   await collections.artifactBodies().deleteMany({});
 }
 
-async function main(): Promise<void> {
-  await connectMongo();
+/**
+ * Popola il DB con i dati demo. Wipe + re-insert. Chiamabile sia dal CLI
+ * (`npm run seed`) sia da una rotta admin per riportare lo stato del pilota
+ * al punto di partenza.
+ *
+ * IMPORTANTE: assume che la connessione Mongo sia già gestita dal chiamante.
+ * Il CLI chiama connectMongo() / closeMongo(); la rotta server la passa già
+ * inizializzata dal ciclo di vita dell'API.
+ */
+export async function seedDemo(): Promise<void> {
   console.log('[seed] pulizia dati precedenti');
   await wipe();
 
@@ -428,15 +436,24 @@ async function main(): Promise<void> {
   console.log('[seed] done');
 }
 
-main()
-  .then(async () => {
-    await closeMongo();
-    await closePostgres();
-    process.exit(0);
-  })
-  .catch(async (err) => {
-    console.error('[seed] errore', err);
-    await closeMongo().catch(() => {});
-    await closePostgres().catch(() => {});
-    process.exit(1);
-  });
+// Entry-point CLI: eseguito solo quando si lancia `node dist/seed/run.js`.
+// La distinzione serve perché questo file viene anche importato (per `seedDemo`)
+// dalle rotte admin, e non vogliamo aprire/chiudere connessioni lì.
+const isCli = process.argv[1]?.includes('seed/run') ?? false;
+if (isCli) {
+  (async () => {
+    await connectMongo();
+    await seedDemo();
+  })()
+    .then(async () => {
+      await closeMongo();
+      await closePostgres();
+      process.exit(0);
+    })
+    .catch(async (err) => {
+      console.error('[seed] errore', err);
+      await closeMongo().catch(() => {});
+      await closePostgres().catch(() => {});
+      process.exit(1);
+    });
+}

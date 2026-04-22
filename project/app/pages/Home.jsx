@@ -131,6 +131,19 @@ function HomePage({ user, showToast }) {
 }
 
 function Hero({ session }) {
+  if (!session) {
+    return (
+      <div className="hero">
+        <div className="hero__head">
+          <div className="tag" style={{ marginBottom: 6 }}>nessuna sessione in corso</div>
+          <h1 className="hero__title">
+            Niente a metà, <em>puoi ripartire quando vuoi.</em>
+          </h1>
+          <div className="hero__lead">"Scegli una card qui sotto, oppure scrivi all'agente per una conversazione aperta."</div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="hero">
       <div className="hero__head">

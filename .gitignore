@@ -28,6 +28,9 @@ Thumbs.db
 .vscode/
 *.swp
 
+# Claude Code local state
+.claude/
+
 # test / coverage
 coverage/
 .nyc_output/

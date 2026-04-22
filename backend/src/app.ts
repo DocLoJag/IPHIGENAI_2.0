@@ -70,8 +70,9 @@ export async function buildApp(): Promise<FastifyInstance> {
         ? (err as { statusCode: number }).statusCode
         : 500;
     if (status >= 500) req.log.error(err);
+    const errorMessage = err instanceof Error ? err.message : 'Errore sconosciuto';
     reply.code(status).send({
-      message: status >= 500 ? 'Errore interno' : err.message,
+      message: status >= 500 ? 'Errore interno' : errorMessage,
       code: 'INTERNAL',
     });
   });

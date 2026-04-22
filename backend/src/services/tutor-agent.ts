@@ -66,11 +66,11 @@ export async function runTutorTurn(input: TutorTurnInput): Promise<{
     messages: anthropicMessages,
   });
 
-  const replyText = response.content
-    .filter((b): b is Extract<typeof b, { type: 'text' }> => b.type === 'text')
-    .map((b) => b.text)
-    .join('\n')
-    .trim() || '…';
+  const replyText =
+    response.content
+      .map((b) => (b.type === 'text' ? b.text : ''))
+      .join('\n')
+      .trim() || '…';
 
   const aiDoc: AiMessageDoc = {
     thread_id: input.threadId,

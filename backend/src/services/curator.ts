@@ -112,8 +112,7 @@ export async function runCuratorForSession(sessionId: string): Promise<void> {
   });
 
   const raw = response.content
-    .filter((b): b is Extract<typeof b, { type: 'text' }> => b.type === 'text')
-    .map((b) => b.text)
+    .map((b) => (b.type === 'text' ? b.text : ''))
     .join('\n')
     .trim();
 

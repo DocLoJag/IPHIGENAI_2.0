@@ -21,7 +21,7 @@ import {
   topicEdges,
   topicNodes,
   users,
-} from '../db/schema/index.js';
+} from '../db/schema.js';
 import { hashPassword } from '../auth/passwords.js';
 
 async function wipe(): Promise<void> {

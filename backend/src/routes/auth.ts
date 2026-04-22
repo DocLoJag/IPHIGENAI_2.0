@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { eq, and, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db/postgres.js';
-import { users, students } from '../db/schema/index.js';
+import { users, students } from '../db/schema.js';
 import { verifyPassword } from '../auth/passwords.js';
 import { unauthorized } from '../lib/errors.js';
 

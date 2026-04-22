@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { desc, eq } from 'drizzle-orm';
 import { db } from '../db/postgres.js';
-import { artifacts } from '../db/schema/index.js';
+import { artifacts } from '../db/schema.js';
 import { collections } from '../db/mongo.js';
 import { forbidden, notFound } from '../lib/errors.js';
 import { serializeArtifact } from './students.js';

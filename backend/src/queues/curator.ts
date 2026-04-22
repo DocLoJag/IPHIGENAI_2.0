@@ -1,7 +1,7 @@
 import { Queue, type QueueOptions } from 'bullmq';
 import { redis } from '../db/redis.js';
 import { db } from '../db/postgres.js';
-import { jobLog } from '../db/schema/index.js';
+import { jobLog } from '../db/schema.js';
 
 export const CURATOR_QUEUE = 'curator';
 

@@ -3,7 +3,7 @@ import { redis } from '../db/redis.js';
 import { CURATOR_QUEUE, type CuratorJobData } from '../queues/curator.js';
 import { runCuratorForSession } from '../services/curator.js';
 import { db } from '../db/postgres.js';
-import { jobLog } from '../db/schema/index.js';
+import { jobLog } from '../db/schema.js';
 import { and, desc, eq } from 'drizzle-orm';
 
 export function startCuratorWorker(): Worker<CuratorJobData> {

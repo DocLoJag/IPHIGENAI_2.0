@@ -11,7 +11,7 @@ import {
   topicNodes,
   users,
   type TopicNodeRow,
-} from '../db/schema/index.js';
+} from '../db/schema.js';
 import { collections } from '../db/mongo.js';
 import { id as mkId } from '../lib/ids.js';
 

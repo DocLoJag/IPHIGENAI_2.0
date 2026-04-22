@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db/postgres.js';
-import { exerciseAttempts, exercises, sessions } from '../db/schema/index.js';
+import { exerciseAttempts, exercises, sessions } from '../db/schema.js';
 import { forbidden, notFound } from '../lib/errors.js';
 import { serializeSession } from './students.js';
 import { enqueueCuratorJob } from '../queues/curator.js';

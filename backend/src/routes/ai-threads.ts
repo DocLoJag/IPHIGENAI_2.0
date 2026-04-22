@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db/postgres.js';
-import { aiThreads, sessions, students } from '../db/schema/index.js';
+import { aiThreads, sessions, students } from '../db/schema.js';
 import { collections } from '../db/mongo.js';
 import { forbidden, notFound } from '../lib/errors.js';
 import { id as mkId } from '../lib/ids.js';

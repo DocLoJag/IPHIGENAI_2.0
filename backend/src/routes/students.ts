@@ -13,7 +13,7 @@ import {
   topicEdges,
   topicNodes,
   users,
-} from '../db/schema/index.js';
+} from '../db/schema.js';
 import { collections } from '../db/mongo.js';
 import { forbidden, notFound } from '../lib/errors.js';
 

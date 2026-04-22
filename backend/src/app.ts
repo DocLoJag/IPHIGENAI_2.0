@@ -28,8 +28,26 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   await app.register(sensible);
 
+  // Allowlist CORS: unione di FRONTEND_ORIGIN (legacy, singolo) e CORS_ALLOWED_ORIGINS (CSV).
+  // Nessun wildcard: con credentials:true il browser rifiuta "*".
+  const allowedOrigins = Array.from(
+    new Set(
+      [
+        env.FRONTEND_ORIGIN,
+        ...(env.CORS_ALLOWED_ORIGINS
+          ? env.CORS_ALLOWED_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean)
+          : []),
+      ].filter(Boolean),
+    ),
+  );
+
   await app.register(cors, {
-    origin: [env.FRONTEND_ORIGIN],
+    origin: (origin, cb) => {
+      // richieste server-to-server o curl senza Origin: consentite (non impostano cookie)
+      if (!origin) return cb(null, true);
+      if (allowedOrigins.includes(origin)) return cb(null, true);
+      return cb(new Error(`Origin non consentita: ${origin}`), false);
+    },
     credentials: true, // necessario per cookie
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   });

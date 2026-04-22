@@ -7,6 +7,7 @@ const schema = z.object({
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 
   FRONTEND_ORIGIN: z.string().url().default('http://localhost:5173'),
+  CORS_ALLOWED_ORIGINS: z.string().optional(),
 
   JWT_SECRET: z.string().min(32, 'JWT_SECRET deve essere almeno 32 caratteri'),
   JWT_EXPIRES_IN: z.string().default('7d'),

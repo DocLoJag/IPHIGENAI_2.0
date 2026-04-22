@@ -37,11 +37,12 @@ Punti non negoziabili:
 - [x] Seed backend identico a `project/data/seed.js`
 - [x] Repo GitHub online, monorepo
 - [x] 5 servizi Railway online: API, Worker, Postgres, Redis, MongoDB
-- [x] Build Docker passa su entrambi i servizi — ultimo commit `473e77b`
+- [x] Build Docker passa su entrambi i servizi
+- [x] **Schema Postgres applicato + seed su Railway** (2026-04-22, commit `d8287a7`). Migrate gira automaticamente a ogni deploy via `preDeployCommand` in `backend/railway.json`. Seed lanciato una tantum dal PC del dev via URL pubbliche temporanee.
+- [x] Login `luca/luca2026` e bundle `/api/students/me/home` verificati end-to-end contro API Railway.
 
 ### Cosa manca per far girare davvero il pilota
 
-- [ ] **Applicare schema Postgres (migrate) e popolare dati (seed) sul DB Railway** ← bloccante, ancora da fare
 - [ ] Frontend migrato al backend vero (oggi usa `mock-client.js`, mai chiama l'API reale)
 - [ ] Frontend in Next.js (ora è statico HTML/JSX da Claude Design) — optional per pilota, necessario per PWA installabile
 - [ ] Tutor panel (admin è il flusso quotidiano di Chiara: riassunto post-lezione, creazione task, timeline eventi, note private)
@@ -189,7 +190,9 @@ Hash argon2id applicato dal seed.
 
 ## 7. Come proseguire — primo passo immediato
 
-**Bloccante attuale**: lo schema Postgres non è applicato, il DB è vuoto. Finché non si fa migrate + seed, qualsiasi endpoint che tocca il DB fallisce con `relation "users" does not exist`.
+> ✅ **FATTO il 2026-04-22** — migrate automatico via `preDeployCommand`, seed eseguito una tantum con URL pubbliche temporanee. Bundle `/api/students/me/home` verificato end-to-end. Sezione mantenuta per riferimento storico; il prossimo passo operativo è ora §8.
+
+**Bloccante (risolto)**: lo schema Postgres non era applicato e il DB era vuoto. Qualsiasi endpoint che toccava il DB falliva con `relation "users" does not exist`.
 
 ### 7.1 Opzione A — Railway CLI dal locale
 
@@ -320,7 +323,7 @@ Sostituire `POST /ai/threads/:id/message` con un endpoint che restituisce `text/
 ## 9. Punti aperti (decisioni da prendere)
 
 1. **Dominio definitivo del frontend pilota**. Opzioni: `pilot.iphigenai.com` / `2.iphigenai.com` / URL Railway auto. Serve per `FRONTEND_ORIGIN`, DNS, cookie domain.
-2. **Come applicare migrations**: opzione A, B, o C (job one-shot). Proposto B.
+2. ~~**Come applicare migrations**: opzione A, B, o C (job one-shot). Proposto B.~~ **Deciso 2026-04-22**: opzione B via `preDeployCommand: "node dist/db/migrate.js"` in `backend/railway.json`. Idempotente, gira prima del start.
 3. **Hosting frontend**: Railway (terzo servizio) o altrove (Vercel, Cloudflare Pages)?
 4. **Nome della sezione cassetta** (§6.7 visione): "cassetta degli attrezzi" vs "scaffale" vs "tavolo" vs "appunti". Rimandato.
 5. **Nome dell'agente**: generico "il tutor" o nome proprio visibile allo studente?

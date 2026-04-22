@@ -264,26 +264,53 @@ curl -b jar.txt https://<api-domain>/api/students/me/home
 
 ## 8. Dopo la prima verifica — roadmap
 
-### 8.1 Tranche successiva: frontend al backend vero
+### 8.1 Tranche successiva (prossima da aprire): frontend al backend vero
 
-Il frontend attuale in `project/` è un mock HTML statico. Per farlo davvero parlare col backend:
+> **Stato:** backend verificato end-to-end il 2026-04-22 — login `luca/luca2026` e bundle `/api/students/me/home` rispondono correttamente contro Railway. Questa è la tranche da aprire come prima cosa nella prossima conversazione.
+
+**Dati operativi per attaccare la tranche:**
+
+- **API base URL**: `https://api-production-21cc.up.railway.app`
+- **Credenziali demo** (vedi §5): `luca/luca2026` (student), `chiara/chiara2026` (tutor), `admin/admin2026` (admin).
+- **Contratto API autoritativo**: `project/docs/API.md`. Il mock in `project/data/mock-client.js` è la reference funzionale — il nuovo `api-client.js` deve esporre la stessa superficie (`window.api.login`, `window.api.getHome`, ecc.), così il resto del frontend non si tocca.
+- **Compat contrattuale**: lo script `verify-home` funzionava sul mock. Lo stesso output è restituito dal backend. Quindi **nessuna modifica di shape** dovrebbe essere necessaria.
+
+**Step concreti:**
 
 1. Scrivere `project/data/api-client.js` che sostituisce `mock-client.js`:
    ```js
-   async function request(method, path, opts) {
+   const API_BASE = window.API_BASE || 'https://api-production-21cc.up.railway.app';
+   async function request(method, path, body) {
      const res = await fetch(API_BASE + path, {
-       method, credentials: 'include',
+       method,
+       credentials: 'include',
        headers: { 'Content-Type': 'application/json' },
-       body: opts?.body ? JSON.stringify(opts.body) : undefined,
+       body: body ? JSON.stringify(body) : undefined,
      });
-     if (!res.ok) throw { ...(await res.json()), status: res.status };
-     return res.json();
+     const data = res.status === 204 ? null : await res.json().catch(() => null);
+     if (!res.ok) throw { ...data, status: res.status };
+     return data;
    }
-   window.api = { get: ..., post: ..., ... };
+   window.api = {
+     login: (u, p) => request('POST', '/api/auth/login', { username: u, password: p }),
+     logout: () => request('POST', '/api/auth/logout'),
+     me: () => request('GET', '/api/auth/me'),
+     getHome: () => request('GET', '/api/students/me/home'),
+     // ... replicare la superficie di mock-client.js una-a-una
+   };
    ```
-2. Cambiare in `index.html` lo script che carica `mock-client.js` con `api-client.js`.
-3. Togliere il fallback a `localStorage` per l'auth (il cookie è gestito dal browser).
-4. Testare in locale puntando a un backend Railway (settare `FRONTEND_ORIGIN` del backend all'URL da cui servi l'index.html locale, es. `http://localhost:3000`).
+2. In `project/index.html` sostituire `<script src="data/mock-client.js"></script>` con `<script src="data/api-client.js"></script>`.
+3. Togliere il fallback a `localStorage` per l'auth (era del mock; il cookie httpOnly è gestito dal browser, non va letto/scritto da JS).
+4. Testare in locale servendo `project/` con un dev-server HTTP locale (es. `npx serve project -l 5173`).
+
+**⚠️ Gotcha cookie cross-origin in dev locale:**
+
+Il cookie `iphigenai_session` è emesso con `Secure; SameSite=None; HttpOnly`. Questo ha due conseguenze in dev:
+
+- **Secure** significa che il browser accetta il cookie SOLO se lo riceve su HTTPS e lo rinvia SOLO su HTTPS. Dato che l'API è HTTPS Railway, questo è OK anche se il frontend gira su `http://localhost:5173` — il cookie viaggia sulle richieste dal frontend all'API HTTPS.
+- **CORS con credenziali**: `FRONTEND_ORIGIN` in Railway Variables del servizio API attualmente è `https://chat.iphigenai.com` (placeholder della 1.0, da rivedere comunque — vedi §9.1). Per dev locale va **aggiunto** l'origin del dev server (`http://localhost:5173`) alla config CORS. Verificare in `backend/src/app.ts` come è configurato `@fastify/cors`: se accetta una singola origin dall'env `FRONTEND_ORIGIN`, valutare di estendere a lista (array o funzione match) per accettare anche localhost in dev.
+
+**Quando passare tutto in produzione**: definire il dominio frontend definitivo (§9.1), deployarlo come terzo servizio Railway o altrove, e settare `FRONTEND_ORIGIN` a quell'origin.
 
 ### 8.2 Porting a Next.js (§11.1 visione)
 

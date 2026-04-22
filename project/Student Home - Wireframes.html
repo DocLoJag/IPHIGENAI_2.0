@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IphigenAI · Wireframes homepage studente</title>
+  <link rel="stylesheet" href="wireframes.css" />
+  <style>
+    body, html { margin: 0; padding: 0; height: 100%; background: #f0eee9; font-family: 'Inter', system-ui, sans-serif; }
+    #root { height: 100vh; }
+    /* Override: full width magazine layout */
+    .vB-grid { display: block !important; grid-template-columns: none !important; max-width: none !important; width: 100% !important; margin: 0 !important; gap: 0 !important; }
+  </style>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <script type="text/babel" src="design-canvas.jsx"></script>
+  <script type="text/babel" src="variants.jsx"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { DesignCanvas, DCSection, DCArtboard, DCPostIt } = window;
+
+    function App() {
+      return (
+        <DesignCanvas title="IphigenAI · Homepage studente" subtitle="wireframes — desktop rivista + mobile feed, tutor AI in bolla → chat fullscreen">
+          <DCSection id="pista-desktop" title="Desktop — Rivista a colonna centrale" subtitle="Bolla tutor AI fissa in basso a destra. Cliccandola apre una chat fullscreen.">
+            <DCArtboard id="desktop-rest" label="Desktop · bolla a riposo" width={1440} height={1080}>
+              <VariantB />
+            </DCArtboard>
+            <DCArtboard id="desktop-chat" label="Desktop · chat tutor fullscreen" width={1440} height={1080}>
+              <VariantB expanded={true} />
+            </DCArtboard>
+          </DCSection>
+
+          <DCSection id="pista-mobile" title="Mobile PWA — Feed" subtitle="Stesso pattern: una sola bolla tutor AI, la chat occupa tutto lo schermo.">
+            <DCArtboard id="mobile-rest" label="Mobile · bolla a riposo" width={760} height={900}>
+              <VariantC />
+            </DCArtboard>
+            <DCArtboard id="mobile-chat" label="Mobile · chat tutor fullscreen" width={760} height={900}>
+              <VariantC expanded={true} />
+            </DCArtboard>
+          </DCSection>
+        </DesignCanvas>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

@@ -1,8 +1,8 @@
 # IphigenAI 2.0 — Handoff
 
-**Snapshot:** 2026-04-22
+**Snapshot:** 2026-04-22 (aggiornato a fine giornata)
 **Owner:** Loris (DocLoJag / lojagannath@gmail.com)
-**Fase:** pilota in preparazione, nessuno studente ancora collegato.
+**Fase:** pilota in preparazione, nessuno studente ancora collegato. **Tranche §8.1 (frontend ↔ backend reale) completata.**
 
 Questo documento serve a far ripartire un agente o una persona da zero sapendo esattamente dove siamo. Leggilo top-to-bottom — poi se vuoi lo schema di dettaglio passa a `IPHIGENAI_2_0_VISIONE.md` e `project/docs/`.
 
@@ -40,15 +40,23 @@ Punti non negoziabili:
 - [x] Build Docker passa su entrambi i servizi
 - [x] **Schema Postgres applicato + seed su Railway** (2026-04-22, commit `d8287a7`). Migrate gira automaticamente a ogni deploy via `preDeployCommand` in `backend/railway.json`. Seed lanciato una tantum dal PC del dev via URL pubbliche temporanee.
 - [x] Login `luca/luca2026` e bundle `/api/students/me/home` verificati end-to-end contro API Railway.
+- [x] **Frontend parla al backend reale** (2026-04-22, commit `b715497`). `project/data/api-client.js` sostituisce `mock-client.js`: fetch con `credentials:'include'`, stessa superficie di API del mock (`window.api`, `window.useApi`). Nessun `localStorage`: sessione solo nel cookie httpOnly. Frontend può essere servito localmente (es. `npx serve project -l 5173`) e dialoga con l'API Railway di produzione.
+- [x] **CORS allowlist** (commit `b715497`). Backend accetta ora più origin via env `CORS_ALLOWED_ORIGINS` (CSV), oltre a `FRONTEND_ORIGIN`. No wildcard (incompatibile con `credentials:true`).
+- [x] **Bug curator jobId fixato** (commit `f1a24f8`): BullMQ 5 non accetta `:` nei custom jobId — causava 500 su `POST /sessions/:id/answer`. Separatore passato a `-`.
+- [x] **Hero null-safe + click card feed funzionante + admin reset-demo** (commit `9c1732d`):
+  - Homepage gestisce il caso `current_session: null` con placeholder editoriale.
+  - Click su una card "Cosa ti aspetta" naviga alla sessione linkata (`linked_session_id`).
+  - Nuova rotta `POST /api/admin/reset-demo` (requireRole admin) che chiama `seedDemo()`: distruttiva, utile per rimettere lo stato pilota al seed dopo una demo.
+- [x] Verifiche E2E manuali (browser + curl): login, home, sessione, quiz answer, chat AI, chat Chiara, cassetta, archivio, logout, reset admin.
 
 ### Cosa manca per far girare davvero il pilota
 
-- [ ] Frontend migrato al backend vero (oggi usa `mock-client.js`, mai chiama l'API reale)
 - [ ] Frontend in Next.js (ora è statico HTML/JSX da Claude Design) — optional per pilota, necessario per PWA installabile
 - [ ] Tutor panel (admin è il flusso quotidiano di Chiara: riassunto post-lezione, creazione task, timeline eventi, note private)
 - [ ] Scheduling attività automatiche (BullMQ job one-shot su `scheduled_for`)
 - [ ] SSE streaming per la chat AI (ora POST sincrono, UX povera ma contratto identico al mock)
 - [ ] Upload file (PDF, foto compiti, materiali esterni)
+- [ ] Frontend deployato su un dominio pubblico (oggi gira solo in locale per dev)
 
 ---
 
@@ -100,9 +108,18 @@ Punti non negoziabili:
           └── lib/                      ← errors + ids
   ```
 
-### Storia commit
+### Storia commit (ultimi a testa)
 
 ```
+9c1732d feat: card feed cliccabili + admin reset-demo per rimettere la demo
+6c10fc5 fix(frontend): Hero gestisce current_session=null
+f1a24f8 fix(backend): jobId curator senza ':' (BullMQ 5 lo rifiuta)
+b715497 feat: frontend parla col backend reale (api-client + CORS allowlist)
+e22c44b docs: §8.1 arricchita con dati operativi per la tranche frontend-backend
+7d4d2c4 docs: HANDOFF — migrate+seed applicati su Railway, pilota verificato E2E
+d8287a7 fix(backend): rinomino releaseCommand -> preDeployCommand (schema Railway)
+9769ef9 chore(backend): applico migration Postgres automaticamente al deploy Railway
+59d576a docs: HANDOFF.md — stato progetto per ripartenza
 473e77b fix(backend): consolido schema Drizzle in file unico + genero migration iniziale
 768437f fix(backend): errori TypeScript che bloccavano il build Docker
 964d9ab Initial commit: visione, frontend mock, backend Fastify
@@ -142,6 +159,7 @@ Le variabili sono condivise tra API e Worker via Shared Variables. Valori attual
 | `REDIS_URL` | URL letterale o `${{Redis.REDIS_URL}}` | idem |
 | `MONGO_URL` | `mongodb://mongo:.../mongodb.railway.internal:27017` | **manca il db name** — vedi sotto |
 | `MONGO_DB` | `iphigenai` | **verificare che sia stato settato** — il codice fa `client.db(env.MONGO_DB)` separatamente |
+| `CORS_ALLOWED_ORIGINS` | CSV di origin extra, oggi `http://localhost:5173` | Usata in `src/app.ts` per allowlist multipla (oltre a `FRONTEND_ORIGIN`). In dev locale permette al frontend su `http://localhost:5173` di parlare all'API Railway. **Rimuovere/sostituire** con dominio frontend definitivo quando deployato in produzione. |
 
 Non vanno impostate (Railway/Dockerfile le gestisce): `PORT`, `NODE_ENV`.
 Opzionali con default: `LOG_LEVEL` (default `info`), `JWT_EXPIRES_IN` (default `7d`), `COOKIE_DOMAIN` (vuoto, da usare solo se api+frontend su sottodomini dello stesso root).
@@ -264,9 +282,9 @@ curl -b jar.txt https://<api-domain>/api/students/me/home
 
 ## 8. Dopo la prima verifica — roadmap
 
-### 8.1 Tranche successiva (prossima da aprire): frontend al backend vero
+### 8.1 Tranche COMPLETATA: frontend al backend vero ✅
 
-> **Stato:** backend verificato end-to-end il 2026-04-22 — login `luca/luca2026` e bundle `/api/students/me/home` rispondono correttamente contro Railway. Questa è la tranche da aprire come prima cosa nella prossima conversazione.
+> **Chiusa il 2026-04-22.** `project/data/api-client.js` sostituisce il mock, tutto il frontend parla con l'API Railway reale. Login, home, sessione, quiz, chat AI, chat Chiara, cassetta, archivio, reset admin: tutti verificati end-to-end. Il contenuto di questa sezione è mantenuto per riferimento storico sulle scelte.
 
 **Dati operativi per attaccare la tranche:**
 
@@ -367,6 +385,9 @@ Sostituire `POST /ai/threads/:id/message` con un endpoint che restituisce `text/
 - **Railway URL private**: `*.railway.internal` funziona solo dall'interno della rete Railway. Dal PC del dev serve la URL pubblica.
 - **Railway variabili riferite**: `${{ServiceName.VAR}}` richiede il nome **esatto** del servizio (incluso il suffisso random che Railway aggiunge, es. `Postgres-ZsQZ`). Meglio usare il picker UI di Railway che il typing manuale.
 - **Railway `preDeployCommand` vs `releaseCommand`**: su Railway la proprietà in `railway.json` per comandi che girano prima del start del servizio si chiama `preDeployCommand`. `releaseCommand` è nomenclatura Heroku e viene scartata silenziosamente dallo schema Railway (nessun errore nei log, il comando semplicemente non gira). Schema autoritativo: `backboard.railway.app/railway.schema.json`.
+- **BullMQ 5 — custom jobId non accetta `:`**: se passi `{ jobId: 'foo:bar' }` a `queue.add()` ricevi `500 Custom Id cannot contain :`. Usare `-` o `_` come separatore. Si è manifestato in `src/queues/curator.ts` ed era il blocker di `POST /sessions/:id/answer`.
+- **Chrome incognito blocca i cookie di terze parti di default**: se servi il frontend su `http://localhost:5173` e l'API è su un dominio diverso (Railway), in incognito il cookie di sessione viene scartato e il login sembra "non autorizzato". In modalità normale funziona. Sparirà quando frontend e API condivideranno lo stesso root domain. Non è un bug del backend.
+- **Hero null-safe in Home**: `current_session: null` è uno stato legittimo (nessuna sessione attiva). Il componente `Hero` in `project/app/pages/Home.jsx` deve gestirlo — se si aggiungono nuovi componenti che leggono il bundle `/students/me/home`, controllare sempre i campi nullable.
 - **CRLF warnings di Git su Windows**: ignorabili.
 - **postgres-js è lazy**: non vedi traffico DB finché non parte la prima query.
 - **MONGO_URL**: il formato Railway non include il db name in fondo. Il codice fa `client.db(env.MONGO_DB)` separatamente — `MONGO_DB=iphigenai` va settata a parte.
@@ -399,6 +420,32 @@ npm run typecheck          # tsc --noEmit
 npm run build
 npm run start:api
 npm run start:worker
+```
+
+### Frontend in locale (dev con backend Railway)
+
+```bash
+# dalla root del repo
+npx --yes serve project -l 5173 --no-clipboard
+# apri http://localhost:5173 nel browser (NON incognito — vedi §10)
+# login demo: luca/luca2026 | chiara/chiara2026 | admin/admin2026
+```
+
+Prerequisito: in Railway Shared Variables deve esistere `CORS_ALLOWED_ORIGINS=http://localhost:5173` (già settata).
+
+### Reset demo via API (distruttivo)
+
+Per rimettere lo stato al seed dopo una dimostrazione (ricreando sessione in pausa di Luca, cronologia Chiara, ecc.):
+
+```bash
+# 1) login come admin (salva cookie)
+curl -c jar.txt -X POST https://api-production-21cc.up.railway.app/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"admin2026"}'
+
+# 2) reset
+curl -b jar.txt -X POST https://api-production-21cc.up.railway.app/api/admin/reset-demo
+# atteso: {"ok":true,"reset_at":"..."}
 ```
 
 ### Railway CLI
@@ -452,7 +499,12 @@ Se sei Claude (o un'altra persona) che deve continuare:
 4. Verifica su GitHub che lo stato del repo sia ancora coerente col log commit in §3. Se ci sono commit più recenti, aggiornati dal diff.
 5. Verifica su Railway che i 5 servizi siano ancora online e con le stesse variabili.
 6. Chiedi al user quale tranche vuole aprire (vedi §8).
-7. Se il primo passo (migrate + seed) non è stato ancora fatto, parti da lì (§7).
+
+**Prossime tranche candidate** (in ordine di priorità strategica):
+- **§8.3 Tutor panel** — cuore del ciclo di lavoro di Chiara. Punto più strategico della visione (§8).
+- **§8.5 SSE streaming chat AI** — UX della chat migliora, ma è cosmetica rispetto al tutor panel.
+- **§8.4 Activity scheduling** — quando Chiara programma un task per "domani alle 18", il job lo renderà visibile al momento giusto.
+- **§8.2 Porting a Next.js** — infrastrutturale, rimandabile.
 
 Non rifare ciò che è già fatto in §2. Non rimettere in discussione le decisioni chiave in §6 senza buon motivo.
 

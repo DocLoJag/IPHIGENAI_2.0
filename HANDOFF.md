@@ -336,6 +336,7 @@ Sostituire `POST /ai/threads/:id/message` con un endpoint che restituisce `text/
 - **Railway service-level vs shared variables**: service-level override shared. Se si spostano le variabili in shared, cancellare quelle di servizio.
 - **Railway URL private**: `*.railway.internal` funziona solo dall'interno della rete Railway. Dal PC del dev serve la URL pubblica.
 - **Railway variabili riferite**: `${{ServiceName.VAR}}` richiede il nome **esatto** del servizio (incluso il suffisso random che Railway aggiunge, es. `Postgres-ZsQZ`). Meglio usare il picker UI di Railway che il typing manuale.
+- **Railway `preDeployCommand` vs `releaseCommand`**: su Railway la proprietà in `railway.json` per comandi che girano prima del start del servizio si chiama `preDeployCommand`. `releaseCommand` è nomenclatura Heroku e viene scartata silenziosamente dallo schema Railway (nessun errore nei log, il comando semplicemente non gira). Schema autoritativo: `backboard.railway.app/railway.schema.json`.
 - **CRLF warnings di Git su Windows**: ignorabili.
 - **postgres-js è lazy**: non vedi traffico DB finché non parte la prima query.
 - **MONGO_URL**: il formato Railway non include il db name in fondo. Il codice fa `client.db(env.MONGO_DB)` separatamente — `MONGO_DB=iphigenai` va settata a parte.

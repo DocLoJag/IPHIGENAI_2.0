@@ -12,6 +12,7 @@ import aiThreadsRoutes from './routes/ai-threads.js';
 import humanThreadsRoutes from './routes/threads.js';
 import artifactsRoutes from './routes/artifacts.js';
 import adminRoutes from './routes/admin.js';
+import tutorRoutes from './routes/tutor.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -67,6 +68,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       await v1.register(humanThreadsRoutes);
       await v1.register(artifactsRoutes);
       await v1.register(adminRoutes);
+      await v1.register(tutorRoutes);
     },
     { prefix: '/api' },
   );

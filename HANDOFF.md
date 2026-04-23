@@ -1,8 +1,8 @@
 # IphigenAI 2.0 — Handoff
 
-**Snapshot:** 2026-04-23
+**Snapshot:** 2026-04-24
 **Owner:** Loris (DocLoJag / lojagannath@gmail.com)
-**Fase:** pilota in preparazione, nessuno studente ancora collegato. **Tranche §8.1 (frontend ↔ backend reale) completata. Tranche §8.3-READ (tutor panel backend read-only) completata.**
+**Fase:** pilota in preparazione, nessuno studente ancora collegato. **Tranche §8.1 (frontend ↔ backend reale) completata. Tranche §8.3-READ (tutor panel backend read-only) completata. Tranche §8.3-WRITE sotto-tranche 2 (tutor panel backend — activities CRUD) completata.**
 
 Questo documento serve a far ripartire un agente o una persona da zero sapendo esattamente dove siamo. Leggilo top-to-bottom — poi se vuoi lo schema di dettaglio passa a `IPHIGENAI_2_0_VISIONE.md` e `project/docs/`.
 
@@ -53,11 +53,18 @@ Punti non negoziabili:
   - `GET /api/tutor/students/:id/overview` — bundle panoramica studente (info + ultime 10 sessioni + 10 attività upcoming + 10 completamenti + ultima nota curator)
   - `GET /api/tutor/students/:id/notebook?limit=` — storico note curator paginato
   - Verifiche E2E: login chiara→200, lista→ritorna Luca, overview→bundle corretto, notebook→200 (0 note è atteso: curator scrive solo su sessioni chiuse), studente inesistente→404, admin che tenta→403, regressione home studente→200.
+- [x] **Tutor panel backend write — activities CRUD** (2026-04-24, commit `1701cc0` + fix `1421e42`). Sotto-tranche 2 di §8.3-WRITE, additiva al file `backend/src/routes/tutor.ts` (zero modifiche allo schema DB). Tre endpoint sotto lo stesso guard `requireRole('tutor')` + ownership via helper `assertTutorOwnsActivity`:
+  - `POST /api/tutor/students/:id/activities` → crea un task per lo studente (imposta `preparedBy=tutor`, `preparedAt=now()`), ritorna 201.
+  - `PATCH /api/tutor/activities/:id` → modifica campi editoriali (kind, subject, title, kicker, estimated_minutes, priority, scheduled_for, linked_session_id) e consente ripristino di un task scartato via `{"dismissed_at": null}`. `preparedBy`/`preparedAt`/`studentId`/`completedAt` immutabili dal client.
+  - `DELETE /api/tutor/activities/:id` → soft-delete via `dismissedAt=now()`.
+  - Validazione zod `.strict()` su entrambi i body. `linked_session_id`, se fornito, deve puntare a una sessione dello stesso studente (blocca cross-student).
+  - Verifiche E2E contro Railway (17 casi): happy path (POST→201, PATCH→200, DELETE→200 con dismissed_at, PATCH dismissed_at:null→ripristino), auth (luca→403, admin→403), kind invalido→400 VALIDATION, linked_session inesistente→400, studente fantasma→404, activity inesistente→404, campo extra nel body→400 (strict), PATCH body vuoto→200 no-op, regressione home studente→200. Stato demo ripulito con `/admin/reset-demo` dopo i test.
+  - Nota: l'errorHandler globale in `src/app.ts` non intercetta ZodError (si comporta come se fosse sovrascritto da uno scope plugin — da investigare in tranche dedicata, vedi §10). Workaround locale in `tutor.ts`: helper `parseBody(schema, data)` con `safeParse` che rilancia `badRequest('VALIDATION')`. Conseguenza: i body invalidi delle rotte tutor write tornano correttamente 400; il resto del codebase mantiene il bug pre-esistente.
 
 ### Cosa manca per far girare davvero il pilota
 
 - [ ] Frontend in Next.js (ora è statico HTML/JSX da Claude Design) — optional per pilota, necessario per PWA installabile
-- [ ] Tutor panel WRITE (backend già espone le rotte di lettura — manca la parte scrittura: creazione task, note private, approvazione proposte AI)
+- [ ] Tutor panel WRITE — activities CRUD già fatto (vedi sopra). Mancano: note private tutor su studente (nuova tabella) e approvazione proposte AI (vedi §8.3-AI-PROPOSE).
 - [ ] Tutor panel UI (una sezione frontend dedicata al ruolo tutor: oggi Chiara entra dall'API ma non ha UI — il frontend mock mostra solo il lato studente)
 - [ ] Scheduling attività automatiche (BullMQ job one-shot su `scheduled_for`)
 - [ ] SSE streaming per la chat AI (ora POST sincrono, UX povera ma contratto identico al mock)
@@ -117,6 +124,8 @@ Punti non negoziabili:
 ### Storia commit (ultimi a testa)
 
 ```
+1421e42 fix(backend): tutor write — body invalido ritorna 400 VALIDATION
+1701cc0 feat(backend): tutor panel — endpoint write activities §8.3 sotto-tranche 2
 f81ce22 feat(backend): tutor panel — endpoint read-only §8.3 sotto-tranche 1
 9c1732d feat: card feed cliccabili + admin reset-demo per rimettere la demo
 6c10fc5 fix(frontend): Hero gestisce current_session=null
@@ -353,9 +362,8 @@ Il flusso più importante descritto in §8 della visione:
 
 **Stato:**
 - [x] **§8.3-READ (2026-04-23)** — endpoint read-only per tutor: lista studenti assegnati, overview, storico note curator. Dettagli sopra in §2. File: `backend/src/routes/tutor.ts`. Zero UI ancora.
-- [ ] **§8.3-WRITE** — creazione/modifica/rifiuto task da parte del tutor, note private su studente. Richiede:
-  - Nuove tabelle o campi (es. `tutor_notes` o JSONB dentro `students`).
-  - Endpoint: `POST /api/tutor/students/:id/activities` (crea task), `PATCH /api/tutor/activities/:id` (modifica), `DELETE` (rifiuta), `POST /api/tutor/students/:id/notes` (nota privata). Tutti con ownership check identico a quelli READ.
+- [x] **§8.3-WRITE sotto-tranche 2 — activities CRUD (2026-04-24)** — `POST /api/tutor/students/:id/activities`, `PATCH /api/tutor/activities/:id`, `DELETE /api/tutor/activities/:id`. Nessuna nuova tabella. Verificato E2E contro Railway. Dettagli in §2. Zero UI ancora.
+- [ ] **§8.3-WRITE sotto-tranche 3 — note private tutor** — `POST /api/tutor/students/:id/notes`, `GET` paginato, eventualmente `PATCH`/`DELETE`. Richiede nuova tabella `tutor_notes` (o JSONB su `students`) + migration Drizzle. Ownership check identico alle altre rotte tutor.
 - [ ] **§8.3-AI-PROPOSE** — quando il curator gira a fine sessione, oltre al notebook genera proposte di task per il tutor. Nuova tabella `activity_proposals` con status (pending/approved/rejected). Tutor vede la coda e approva → diventano `activities`.
 - [ ] **§8.3-UI** — pagine/componenti frontend per il flusso di Chiara. Prerequisito: decidere se costruire dentro `project/` (HTML+React via CDN come oggi) o saltare direttamente al porting Next.js (§8.2).
 
@@ -399,6 +407,7 @@ Sostituire `POST /ai/threads/:id/message` con un endpoint che restituisce `text/
 - **Railway variabili riferite**: `${{ServiceName.VAR}}` richiede il nome **esatto** del servizio (incluso il suffisso random che Railway aggiunge, es. `Postgres-ZsQZ`). Meglio usare il picker UI di Railway che il typing manuale.
 - **Railway `preDeployCommand` vs `releaseCommand`**: su Railway la proprietà in `railway.json` per comandi che girano prima del start del servizio si chiama `preDeployCommand`. `releaseCommand` è nomenclatura Heroku e viene scartata silenziosamente dallo schema Railway (nessun errore nei log, il comando semplicemente non gira). Schema autoritativo: `backboard.railway.app/railway.schema.json`.
 - **BullMQ 5 — custom jobId non accetta `:`**: se passi `{ jobId: 'foo:bar' }` a `queue.add()` ricevi `500 Custom Id cannot contain :`. Usare `-` o `_` come separatore. Si è manifestato in `src/queues/curator.ts` ed era il blocker di `POST /sessions/:id/answer`.
+- **`err instanceof ZodError` nel setErrorHandler globale non matcha** (`src/app.ts`): in test E2E contro Railway, un body che fa fallire `schema.parse()` in un handler ritorna 500 con dump serializzato degli issues al posto di 400 VALIDATION. Il ramo dedicato a ZodError nell'errorHandler globale non viene eseguito — probabile che uno scope plugin (sensible? fastify-cors? auth?) registri un handler più specifico che intercetta prima. Workaround nelle rotte tutor write: helper locale `parseBody()` con `schema.safeParse()` che rilancia `badRequest('VALIDATION')`. Le altre rotte del codebase (es. `/tutor/students/:id/notebook?limit=xyz`) continuano a soffrirne. Fix globale pulito da fare in una tranche a sé stante (es. spostare `setErrorHandler` prima del register dei plugin, o usare `setSchemaErrorFormatter`).
 - **Chrome incognito blocca i cookie di terze parti di default**: se servi il frontend su `http://localhost:5173` e l'API è su un dominio diverso (Railway), in incognito il cookie di sessione viene scartato e il login sembra "non autorizzato". In modalità normale funziona. Sparirà quando frontend e API condivideranno lo stesso root domain. Non è un bug del backend.
 - **Hero null-safe in Home**: `current_session: null` è uno stato legittimo (nessuna sessione attiva). Il componente `Hero` in `project/app/pages/Home.jsx` deve gestirlo — se si aggiungono nuovi componenti che leggono il bundle `/students/me/home`, controllare sempre i campi nullable.
 - **CRLF warnings di Git su Windows**: ignorabili.
@@ -514,8 +523,9 @@ Se sei Claude (o un'altra persona) che deve continuare:
 6. Chiedi al user quale tranche vuole aprire (vedi §8).
 
 **Prossime tranche candidate** (in ordine di priorità strategica):
-- **§8.3-WRITE** — far scrivere il tutor (task, note private). Read-only è già fatto, la parte write è naturale continuazione.
-- **§8.3-AI-PROPOSE** — proposte di task generate dal curator, approvate dal tutor. Chiude il loop "fine lezione → memoria → proposta → feed".
+- **§8.3-WRITE sotto-tranche 3 — note private tutor** — activities CRUD già fatto; manca la tabella `tutor_notes` + endpoint. Prerequisito: migration Drizzle.
+- **§8.3-AI-PROPOSE** — proposte di task generate dal curator, approvate dal tutor. Chiude il loop "fine lezione → memoria → proposta → feed". Può riusare `POST /api/tutor/students/:id/activities` come sink dopo l'approvazione.
+- **Fix globale ZodError in errorHandler** — bug pre-esistente, oggi workaroundato solo nelle rotte tutor write (vedi §10). Piccola, sicura, utile per pulire il comportamento delle altre rotte.
 - **§8.5 SSE streaming chat AI** — UX della chat migliora, ma è cosmetica rispetto al tutor panel.
 - **§8.4 Activity scheduling** — quando Chiara programma un task per "domani alle 18", il job lo renderà visibile al momento giusto.
 - **§8.3-UI / §8.2 Porting a Next.js** — infrastrutturale, rimandabile.

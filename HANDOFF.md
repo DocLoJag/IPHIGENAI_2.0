@@ -1,8 +1,8 @@
 # IphigenAI 2.0 — Handoff
 
-**Snapshot:** 2026-04-22 (aggiornato a fine giornata)
+**Snapshot:** 2026-04-23
 **Owner:** Loris (DocLoJag / lojagannath@gmail.com)
-**Fase:** pilota in preparazione, nessuno studente ancora collegato. **Tranche §8.1 (frontend ↔ backend reale) completata.**
+**Fase:** pilota in preparazione, nessuno studente ancora collegato. **Tranche §8.1 (frontend ↔ backend reale) completata. Tranche §8.3-READ (tutor panel backend read-only) completata.**
 
 Questo documento serve a far ripartire un agente o una persona da zero sapendo esattamente dove siamo. Leggilo top-to-bottom — poi se vuoi lo schema di dettaglio passa a `IPHIGENAI_2_0_VISIONE.md` e `project/docs/`.
 
@@ -48,11 +48,17 @@ Punti non negoziabili:
   - Click su una card "Cosa ti aspetta" naviga alla sessione linkata (`linked_session_id`).
   - Nuova rotta `POST /api/admin/reset-demo` (requireRole admin) che chiama `seedDemo()`: distruttiva, utile per rimettere lo stato pilota al seed dopo una demo.
 - [x] Verifiche E2E manuali (browser + curl): login, home, sessione, quiz answer, chat AI, chat Chiara, cassetta, archivio, logout, reset admin.
+- [x] **Tutor panel backend read-only** (2026-04-23, commit `f81ce22`). Prima sotto-tranche di §8.3, puramente additiva. Nuovo file `backend/src/routes/tutor.ts` con 3 endpoint protetti da `requireRole('tutor')` + ownership check su `students.tutorId`:
+  - `GET /api/tutor/students` — lista studenti assegnati al tutor loggato (con hint ultima sessione)
+  - `GET /api/tutor/students/:id/overview` — bundle panoramica studente (info + ultime 10 sessioni + 10 attività upcoming + 10 completamenti + ultima nota curator)
+  - `GET /api/tutor/students/:id/notebook?limit=` — storico note curator paginato
+  - Verifiche E2E: login chiara→200, lista→ritorna Luca, overview→bundle corretto, notebook→200 (0 note è atteso: curator scrive solo su sessioni chiuse), studente inesistente→404, admin che tenta→403, regressione home studente→200.
 
 ### Cosa manca per far girare davvero il pilota
 
 - [ ] Frontend in Next.js (ora è statico HTML/JSX da Claude Design) — optional per pilota, necessario per PWA installabile
-- [ ] Tutor panel (admin è il flusso quotidiano di Chiara: riassunto post-lezione, creazione task, timeline eventi, note private)
+- [ ] Tutor panel WRITE (backend già espone le rotte di lettura — manca la parte scrittura: creazione task, note private, approvazione proposte AI)
+- [ ] Tutor panel UI (una sezione frontend dedicata al ruolo tutor: oggi Chiara entra dall'API ma non ha UI — il frontend mock mostra solo il lato studente)
 - [ ] Scheduling attività automatiche (BullMQ job one-shot su `scheduled_for`)
 - [ ] SSE streaming per la chat AI (ora POST sincrono, UX povera ma contratto identico al mock)
 - [ ] Upload file (PDF, foto compiti, materiali esterni)
@@ -111,6 +117,7 @@ Punti non negoziabili:
 ### Storia commit (ultimi a testa)
 
 ```
+f81ce22 feat(backend): tutor panel — endpoint read-only §8.3 sotto-tranche 1
 9c1732d feat: card feed cliccabili + admin reset-demo per rimettere la demo
 6c10fc5 fix(frontend): Hero gestisce current_session=null
 f1a24f8 fix(backend): jobId curator senza ':' (BullMQ 5 lo rifiuta)
@@ -344,7 +351,13 @@ Il flusso più importante descritto in §8 della visione:
 - Inserimento messaggi diretti
 - Revisione prompt e profilo studente
 
-Niente di questo è implementato. Molte tabelle sono predisposte ma servono endpoint nuovi + UI.
+**Stato:**
+- [x] **§8.3-READ (2026-04-23)** — endpoint read-only per tutor: lista studenti assegnati, overview, storico note curator. Dettagli sopra in §2. File: `backend/src/routes/tutor.ts`. Zero UI ancora.
+- [ ] **§8.3-WRITE** — creazione/modifica/rifiuto task da parte del tutor, note private su studente. Richiede:
+  - Nuove tabelle o campi (es. `tutor_notes` o JSONB dentro `students`).
+  - Endpoint: `POST /api/tutor/students/:id/activities` (crea task), `PATCH /api/tutor/activities/:id` (modifica), `DELETE` (rifiuta), `POST /api/tutor/students/:id/notes` (nota privata). Tutti con ownership check identico a quelli READ.
+- [ ] **§8.3-AI-PROPOSE** — quando il curator gira a fine sessione, oltre al notebook genera proposte di task per il tutor. Nuova tabella `activity_proposals` con status (pending/approved/rejected). Tutor vede la coda e approva → diventano `activities`.
+- [ ] **§8.3-UI** — pagine/componenti frontend per il flusso di Chiara. Prerequisito: decidere se costruire dentro `project/` (HTML+React via CDN come oggi) o saltare direttamente al porting Next.js (§8.2).
 
 ### 8.4 Activity scheduling
 
@@ -501,10 +514,11 @@ Se sei Claude (o un'altra persona) che deve continuare:
 6. Chiedi al user quale tranche vuole aprire (vedi §8).
 
 **Prossime tranche candidate** (in ordine di priorità strategica):
-- **§8.3 Tutor panel** — cuore del ciclo di lavoro di Chiara. Punto più strategico della visione (§8).
+- **§8.3-WRITE** — far scrivere il tutor (task, note private). Read-only è già fatto, la parte write è naturale continuazione.
+- **§8.3-AI-PROPOSE** — proposte di task generate dal curator, approvate dal tutor. Chiude il loop "fine lezione → memoria → proposta → feed".
 - **§8.5 SSE streaming chat AI** — UX della chat migliora, ma è cosmetica rispetto al tutor panel.
 - **§8.4 Activity scheduling** — quando Chiara programma un task per "domani alle 18", il job lo renderà visibile al momento giusto.
-- **§8.2 Porting a Next.js** — infrastrutturale, rimandabile.
+- **§8.3-UI / §8.2 Porting a Next.js** — infrastrutturale, rimandabile.
 
 Non rifare ciò che è già fatto in §2. Non rimettere in discussione le decisioni chiave in §6 senza buon motivo.
 

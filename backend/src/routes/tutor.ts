@@ -129,6 +129,18 @@ async function assertSessionBelongsToStudent(sessionId: string, studentId: strin
   }
 }
 
+// Alternativa a schema.parse() che garantisce 400 VALIDATION come status.
+// L'errorHandler globale in src/app.ts dovrebbe catturare ZodError, ma in
+// pratica non lo fa (probabilmente sovrascritto dallo scope del plugin);
+// questo helper usa safeParse e rilancia una AppError normale, evitando il 500.
+function parseBody<T>(schema: z.ZodType<T>, data: unknown): T {
+  const r = schema.safeParse(data);
+  if (!r.success) {
+    throw badRequest('Richiesta non valida', 'VALIDATION');
+  }
+  return r.data;
+}
+
 function serializeCuratorNote(n: {
   session_id: string;
   written_at: Date;
@@ -294,7 +306,7 @@ export default async function tutorRoutes(app: FastifyInstance) {
       const studentId = req.params.id;
       await assertTutorOwnsStudent(tutorId, studentId);
 
-      const body = createActivityBody.parse(req.body ?? {});
+      const body = parseBody(createActivityBody, req.body ?? {});
 
       if (body.linked_session_id) {
         await assertSessionBelongsToStudent(body.linked_session_id, studentId);
@@ -336,7 +348,7 @@ export default async function tutorRoutes(app: FastifyInstance) {
       const activityId = req.params.id;
       const current = await assertTutorOwnsActivity(tutorId, activityId);
 
-      const body = patchActivityBody.parse(req.body ?? {});
+      const body = parseBody(patchActivityBody, req.body ?? {});
 
       if (body.linked_session_id) {
         await assertSessionBelongsToStudent(body.linked_session_id, current.studentId);

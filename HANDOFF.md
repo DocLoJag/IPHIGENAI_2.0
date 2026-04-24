@@ -1,8 +1,8 @@
 # IphigenAI 2.0 — Handoff
 
 **Snapshot:** 2026-04-24
-**Owner:** Loris (DocLoJag / lojagannath@gmail.com)
-**Fase:** pilota in preparazione, nessuno studente ancora collegato. **Tranche §8.1 (frontend ↔ backend reale) completata. Tranche §8.3-READ (tutor panel backend read-only) completata. Tranche §8.3-WRITE sotto-tranche 2 (tutor panel backend — activities CRUD) completata.**
+**Owner:** Loris (DocLoJag / lojagannath@gmail.com) — **non sa programmare**: può verificare solo dal browser/UI. Tutta la parte tecnica (implementazione, git workflow, deploy, test E2E via curl) va portata end-to-end dall'agente. Non chiedere al owner scelte su merge/PR/push: scegli secondo il pattern del repo (push diretto su main) e procedi.
+**Fase:** pilota in preparazione, nessuno studente ancora collegato. **Tranche §8.1 (frontend ↔ backend reale) completata. Tranche §8.3-READ (tutor panel backend read-only) completata. Tranche §8.3-WRITE sotto-tranche 2 (tutor panel backend — activities CRUD) completata. Tranche §8.3-WRITE sotto-tranche 3 (tutor panel backend — note private tutor) completata.**
 
 Questo documento serve a far ripartire un agente o una persona da zero sapendo esattamente dove siamo. Leggilo top-to-bottom — poi se vuoi lo schema di dettaglio passa a `IPHIGENAI_2_0_VISIONE.md` e `project/docs/`.
 
@@ -53,6 +53,13 @@ Punti non negoziabili:
   - `GET /api/tutor/students/:id/overview` — bundle panoramica studente (info + ultime 10 sessioni + 10 attività upcoming + 10 completamenti + ultima nota curator)
   - `GET /api/tutor/students/:id/notebook?limit=` — storico note curator paginato
   - Verifiche E2E: login chiara→200, lista→ritorna Luca, overview→bundle corretto, notebook→200 (0 note è atteso: curator scrive solo su sessioni chiuse), studente inesistente→404, admin che tenta→403, regressione home studente→200.
+- [x] **Tutor panel backend write — note private tutor** (2026-04-24, commit `3364032`). Sotto-tranche 3 di §8.3-WRITE. **Prima migration aggiuntiva del progetto**: `0001_watery_secret_warriors.sql` crea tabella `tutor_notes` (id, student_id FK users, tutor_id FK users, body, created_at, updated_at, indici `(student_id, created_at)` e `(tutor_id, student_id)`). Additiva, zero modifiche a tabelle esistenti, idempotente via `preDeployCommand` Railway. Quattro endpoint sotto `requireRole('tutor')`:
+  - `POST   /api/tutor/students/:id/notes` → crea nota (ownership: `assertTutorOwnsStudent`), ritorna 201.
+  - `GET    /api/tutor/students/:id/notes?limit=` → lista paginata (default 20, max 100), ordine DESC per `created_at`. Filtra `tutor_id = current`: note private dell'autore, altri tutor che avessero in futuro lo stesso studente non vedono le note del collega.
+  - `PATCH  /api/tutor/notes/:id` → aggiorna `body` e `updated_at`, consentito solo all'autore via `assertTutorOwnsNote`.
+  - `DELETE /api/tutor/notes/:id` → **hard delete** (sono appunti personali del tutor, non oggetti editoriali come activities che hanno soft-delete). Ritorna `{ok:true}` 200, oppure 404 se nota inesistente.
+  - Validazione zod `.strict()` via helper `parseBody` (stesso workaround ZodError delle rotte activities).
+  - Verifiche E2E contro Railway (32 casi): happy path completo (POST x3, GET lista+limit, PATCH con controllo updated_at > created_at, DELETE con 404 sul secondo tentativo); auth (luca→403, admin→403, senza cookie→401); validation (body vuoto→400, body mancante→400, campo extra→400 strict, body tipo sbagliato→400 sia POST che PATCH); 404 (studente fantasma, nota inesistente); regressione (GET /tutor/students, /overview, /notebook, home studente tutti 200). Stato demo ripulito con `/admin/reset-demo` dopo i test.
 - [x] **Tutor panel backend write — activities CRUD** (2026-04-24, commit `1701cc0` + fix `1421e42`). Sotto-tranche 2 di §8.3-WRITE, additiva al file `backend/src/routes/tutor.ts` (zero modifiche allo schema DB). Tre endpoint sotto lo stesso guard `requireRole('tutor')` + ownership via helper `assertTutorOwnsActivity`:
   - `POST /api/tutor/students/:id/activities` → crea un task per lo studente (imposta `preparedBy=tutor`, `preparedAt=now()`), ritorna 201.
   - `PATCH /api/tutor/activities/:id` → modifica campi editoriali (kind, subject, title, kicker, estimated_minutes, priority, scheduled_for, linked_session_id) e consente ripristino di un task scartato via `{"dismissed_at": null}`. `preparedBy`/`preparedAt`/`studentId`/`completedAt` immutabili dal client.
@@ -64,7 +71,7 @@ Punti non negoziabili:
 ### Cosa manca per far girare davvero il pilota
 
 - [ ] Frontend in Next.js (ora è statico HTML/JSX da Claude Design) — optional per pilota, necessario per PWA installabile
-- [ ] Tutor panel WRITE — activities CRUD già fatto (vedi sopra). Mancano: note private tutor su studente (nuova tabella) e approvazione proposte AI (vedi §8.3-AI-PROPOSE).
+- [ ] Tutor panel WRITE — activities CRUD (fatto) e note private tutor (fatto) OK. Manca: approvazione proposte AI (vedi §8.3-AI-PROPOSE).
 - [ ] Tutor panel UI (una sezione frontend dedicata al ruolo tutor: oggi Chiara entra dall'API ma non ha UI — il frontend mock mostra solo il lato studente)
 - [ ] Scheduling attività automatiche (BullMQ job one-shot su `scheduled_for`)
 - [ ] SSE streaming per la chat AI (ora POST sincrono, UX povera ma contratto identico al mock)
@@ -124,6 +131,7 @@ Punti non negoziabili:
 ### Storia commit (ultimi a testa)
 
 ```
+3364032 feat(backend): tutor panel — endpoint write note private §8.3 sotto-tranche 3
 1421e42 fix(backend): tutor write — body invalido ritorna 400 VALIDATION
 1701cc0 feat(backend): tutor panel — endpoint write activities §8.3 sotto-tranche 2
 f81ce22 feat(backend): tutor panel — endpoint read-only §8.3 sotto-tranche 1
@@ -363,7 +371,7 @@ Il flusso più importante descritto in §8 della visione:
 **Stato:**
 - [x] **§8.3-READ (2026-04-23)** — endpoint read-only per tutor: lista studenti assegnati, overview, storico note curator. Dettagli sopra in §2. File: `backend/src/routes/tutor.ts`. Zero UI ancora.
 - [x] **§8.3-WRITE sotto-tranche 2 — activities CRUD (2026-04-24)** — `POST /api/tutor/students/:id/activities`, `PATCH /api/tutor/activities/:id`, `DELETE /api/tutor/activities/:id`. Nessuna nuova tabella. Verificato E2E contro Railway. Dettagli in §2. Zero UI ancora.
-- [ ] **§8.3-WRITE sotto-tranche 3 — note private tutor** — `POST /api/tutor/students/:id/notes`, `GET` paginato, eventualmente `PATCH`/`DELETE`. Richiede nuova tabella `tutor_notes` (o JSONB su `students`) + migration Drizzle. Ownership check identico alle altre rotte tutor.
+- [x] **§8.3-WRITE sotto-tranche 3 — note private tutor (2026-04-24)** — `POST /api/tutor/students/:id/notes`, `GET /api/tutor/students/:id/notes`, `PATCH /api/tutor/notes/:id`, `DELETE /api/tutor/notes/:id` (hard delete). Nuova tabella `tutor_notes` + migration `0001`. Note private all'autore. Verificato E2E (32 casi). Dettagli in §2. Zero UI ancora.
 - [ ] **§8.3-AI-PROPOSE** — quando il curator gira a fine sessione, oltre al notebook genera proposte di task per il tutor. Nuova tabella `activity_proposals` con status (pending/approved/rejected). Tutor vede la coda e approva → diventano `activities`.
 - [ ] **§8.3-UI** — pagine/componenti frontend per il flusso di Chiara. Prerequisito: decidere se costruire dentro `project/` (HTML+React via CDN come oggi) o saltare direttamente al porting Next.js (§8.2).
 
@@ -523,7 +531,6 @@ Se sei Claude (o un'altra persona) che deve continuare:
 6. Chiedi al user quale tranche vuole aprire (vedi §8).
 
 **Prossime tranche candidate** (in ordine di priorità strategica):
-- **§8.3-WRITE sotto-tranche 3 — note private tutor** — activities CRUD già fatto; manca la tabella `tutor_notes` + endpoint. Prerequisito: migration Drizzle.
 - **§8.3-AI-PROPOSE** — proposte di task generate dal curator, approvate dal tutor. Chiude il loop "fine lezione → memoria → proposta → feed". Può riusare `POST /api/tutor/students/:id/activities` come sink dopo l'approvazione.
 - **Fix globale ZodError in errorHandler** — bug pre-esistente, oggi workaroundato solo nelle rotte tutor write (vedi §10). Piccola, sicura, utile per pulire il comportamento delle altre rotte.
 - **§8.5 SSE streaming chat AI** — UX della chat migliora, ma è cosmetica rispetto al tutor panel.

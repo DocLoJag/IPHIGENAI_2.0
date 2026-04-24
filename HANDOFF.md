@@ -2,7 +2,7 @@
 
 **Snapshot:** 2026-04-24
 **Owner:** Loris (DocLoJag / lojagannath@gmail.com) — **non sa programmare**: può verificare solo dal browser/UI. Tutta la parte tecnica (implementazione, git workflow, deploy, test E2E via curl) va portata end-to-end dall'agente. Non chiedere al owner scelte su merge/PR/push: scegli secondo il pattern del repo (push diretto su main) e procedi.
-**Fase:** pilota in preparazione, nessuno studente ancora collegato. **Tranche §8.1 (frontend ↔ backend reale) completata. Tranche §8.3-READ (tutor panel backend read-only) completata. Tranche §8.3-WRITE sotto-tranche 2 (tutor panel backend — activities CRUD) completata. Tranche §8.3-WRITE sotto-tranche 3 (tutor panel backend — note private tutor) completata.**
+**Fase:** pilota in preparazione, nessuno studente ancora collegato. **Tranche §8.1 (frontend ↔ backend reale) completata. Tranche §8.3-READ (tutor panel backend read-only) completata. Tranche §8.3-WRITE sotto-tranche 2 (tutor panel backend — activities CRUD) completata. Tranche §8.3-WRITE sotto-tranche 3 (tutor panel backend — note private tutor) completata. Tranche §8.3-AI-PROPOSE sotto-tranche 1 (tutor panel backend — proposte task: schema + API tutor approve/reject) completata.**
 
 Questo documento serve a far ripartire un agente o una persona da zero sapendo esattamente dove siamo. Leggilo top-to-bottom — poi se vuoi lo schema di dettaglio passa a `IPHIGENAI_2_0_VISIONE.md` e `project/docs/`.
 
@@ -60,6 +60,15 @@ Punti non negoziabili:
   - `DELETE /api/tutor/notes/:id` → **hard delete** (sono appunti personali del tutor, non oggetti editoriali come activities che hanno soft-delete). Ritorna `{ok:true}` 200, oppure 404 se nota inesistente.
   - Validazione zod `.strict()` via helper `parseBody` (stesso workaround ZodError delle rotte activities).
   - Verifiche E2E contro Railway (32 casi): happy path completo (POST x3, GET lista+limit, PATCH con controllo updated_at > created_at, DELETE con 404 sul secondo tentativo); auth (luca→403, admin→403, senza cookie→401); validation (body vuoto→400, body mancante→400, campo extra→400 strict, body tipo sbagliato→400 sia POST che PATCH); 404 (studente fantasma, nota inesistente); regressione (GET /tutor/students, /overview, /notebook, home studente tutti 200). Stato demo ripulito con `/admin/reset-demo` dopo i test.
+- [x] **Tutor panel backend write — proposte task (§8.3-AI-PROPOSE sotto-tranche 1)** (2026-04-24, commit `e862e33`). **Seconda migration aggiuntiva**: `0002_dapper_the_stranger.sql` crea enum `proposal_status` (`pending`/`approved`/`rejected`) e tabella `activity_proposals` (17 colonne, 4 FK verso `users`/`sessions`/`activities`, 2 indici). Additiva, zero modifiche a tabelle esistenti. Quattro endpoint in `backend/src/routes/tutor.ts` sotto `requireRole('tutor')` + ownership helper `assertTutorOwnsProposal`:
+  - `GET  /api/tutor/proposals?status=&limit=` → coda globale del tutor (join via studenti assegnati); senza proposte ritorna `{items:[],total:0}`.
+  - `GET  /api/tutor/students/:id/proposals?status=&limit=` → proposte per singolo studente.
+  - `POST /api/tutor/proposals/:id/approve` → crea `activity` (con `preparedBy=tutor`, `preparedAt=now()`) copiando i campi dalla proposta; il body opzionale `.strict()` permette di sovrascrivere `kind`, `subject`, `title`, `kicker`, `estimated_minutes`, `priority`, `scheduled_for`, `linked_session_id`. Segna la proposta `approved`, popola `decided_at`/`decided_by`/`created_activity_id`. Ritorna `{proposal, activity}` 201. Se la proposta è già decisa → 400 `ALREADY_DECIDED`.
+  - `POST /api/tutor/proposals/:id/reject` → segna `rejected` con `rejection_reason` opzionale. Stesso guard `ALREADY_DECIDED`.
+  - Ordine dei controlli in approve/reject: ownership (404/403) → stato (400 `ALREADY_DECIDED`) → validation body (400 `VALIDATION`).
+  - Seed: 3 proposte demo `pending` per Luca (`prop-seed-delta-recap`, `prop-seed-promessi-cap5`, `prop-seed-logica-insiemi`). `TRUNCATE` del wipe esteso a includere `activity_proposals` (prima di `activities` per evitare FK). Nota: `tutor_notes` resta fuori dal wipe (bug pre-esistente della sotto-tranche 3, fuori scope).
+  - Miglioramento collaterale in `tutor.ts`: firma `parseBody` ristretta da `z.ZodType<T>` a `<S extends z.ZodTypeAny>` + `z.infer<S>` perché altrimenti i default di zod (es. `limit=20`) venivano persi nel tipo di ritorno (TS2345). Fix trasparente per tutte le chiamate esistenti.
+  - Verifiche E2E contro Railway (31 casi): happy path (list globale, filtro per status/limit, list per studente, approve no-override → 201, approve con override priority+scheduled+estimated → 201, reject con reason → 200), 400 `ALREADY_DECIDED` su riapprove/rireject, 404 proposta/studente fantasma, auth (luca→403, admin→403, senza cookie→401), validation strict (body campo extra, tipo sbagliato, query `status=wrong`, `limit=0`), `linked_session_id` fantasma → 400 `LINKED_SESSION_NOT_FOUND`, regressione (home luca, /tutor/students, /overview, /notebook, /notes), e **integration test**: activity creata da approve compare in `upcoming` della home studente. Stato demo ripulito con `/admin/reset-demo` dopo i test.
 - [x] **Tutor panel backend write — activities CRUD** (2026-04-24, commit `1701cc0` + fix `1421e42`). Sotto-tranche 2 di §8.3-WRITE, additiva al file `backend/src/routes/tutor.ts` (zero modifiche allo schema DB). Tre endpoint sotto lo stesso guard `requireRole('tutor')` + ownership via helper `assertTutorOwnsActivity`:
   - `POST /api/tutor/students/:id/activities` → crea un task per lo studente (imposta `preparedBy=tutor`, `preparedAt=now()`), ritorna 201.
   - `PATCH /api/tutor/activities/:id` → modifica campi editoriali (kind, subject, title, kicker, estimated_minutes, priority, scheduled_for, linked_session_id) e consente ripristino di un task scartato via `{"dismissed_at": null}`. `preparedBy`/`preparedAt`/`studentId`/`completedAt` immutabili dal client.
@@ -71,7 +80,7 @@ Punti non negoziabili:
 ### Cosa manca per far girare davvero il pilota
 
 - [ ] Frontend in Next.js (ora è statico HTML/JSX da Claude Design) — optional per pilota, necessario per PWA installabile
-- [ ] Tutor panel WRITE — activities CRUD (fatto) e note private tutor (fatto) OK. Manca: approvazione proposte AI (vedi §8.3-AI-PROPOSE).
+- [ ] Tutor panel WRITE — activities CRUD (fatto), note private (fatto), approve/reject proposte (fatto). Manca: curator genera le proposte a fine sessione (§8.3-AI-PROPOSE sotto-tranche 2).
 - [ ] Tutor panel UI (una sezione frontend dedicata al ruolo tutor: oggi Chiara entra dall'API ma non ha UI — il frontend mock mostra solo il lato studente)
 - [ ] Scheduling attività automatiche (BullMQ job one-shot su `scheduled_for`)
 - [ ] SSE streaming per la chat AI (ora POST sincrono, UX povera ma contratto identico al mock)
@@ -131,6 +140,7 @@ Punti non negoziabili:
 ### Storia commit (ultimi a testa)
 
 ```
+e862e33 feat(backend): tutor panel — proposte task §8.3-AI-PROPOSE sotto-tranche 1
 3364032 feat(backend): tutor panel — endpoint write note private §8.3 sotto-tranche 3
 1421e42 fix(backend): tutor write — body invalido ritorna 400 VALIDATION
 1701cc0 feat(backend): tutor panel — endpoint write activities §8.3 sotto-tranche 2
@@ -372,7 +382,8 @@ Il flusso più importante descritto in §8 della visione:
 - [x] **§8.3-READ (2026-04-23)** — endpoint read-only per tutor: lista studenti assegnati, overview, storico note curator. Dettagli sopra in §2. File: `backend/src/routes/tutor.ts`. Zero UI ancora.
 - [x] **§8.3-WRITE sotto-tranche 2 — activities CRUD (2026-04-24)** — `POST /api/tutor/students/:id/activities`, `PATCH /api/tutor/activities/:id`, `DELETE /api/tutor/activities/:id`. Nessuna nuova tabella. Verificato E2E contro Railway. Dettagli in §2. Zero UI ancora.
 - [x] **§8.3-WRITE sotto-tranche 3 — note private tutor (2026-04-24)** — `POST /api/tutor/students/:id/notes`, `GET /api/tutor/students/:id/notes`, `PATCH /api/tutor/notes/:id`, `DELETE /api/tutor/notes/:id` (hard delete). Nuova tabella `tutor_notes` + migration `0001`. Note private all'autore. Verificato E2E (32 casi). Dettagli in §2. Zero UI ancora.
-- [ ] **§8.3-AI-PROPOSE** — quando il curator gira a fine sessione, oltre al notebook genera proposte di task per il tutor. Nuova tabella `activity_proposals` con status (pending/approved/rejected). Tutor vede la coda e approva → diventano `activities`.
+- [x] **§8.3-AI-PROPOSE sotto-tranche 1 — schema + API tutor approve/reject (2026-04-24)** — `GET /api/tutor/proposals`, `GET /api/tutor/students/:id/proposals`, `POST /api/tutor/proposals/:id/approve` (crea activity), `POST /api/tutor/proposals/:id/reject`. Nuova tabella `activity_proposals` + enum `proposal_status` + migration `0002`. Seed con 3 proposte `pending` demo. Verificato E2E (31 casi). Dettagli in §2. Zero UI ancora.
+- [ ] **§8.3-AI-PROPOSE sotto-tranche 2 — curator genera proposte** — modifica al `CURATOR_SYSTEM_PROMPT` e a `runCuratorForSession()`: alla fine della nota il curator suggerisce 0-N proposte di task; le scriviamo in `activity_proposals` con status `pending` + `source_session_id`. Idempotenza: se esistono già proposte da quella sessione, skip. Dopo questa sotto-tranche il loop "fine lezione → proposta → feed" è chiuso lato backend.
 - [ ] **§8.3-UI** — pagine/componenti frontend per il flusso di Chiara. Prerequisito: decidere se costruire dentro `project/` (HTML+React via CDN come oggi) o saltare direttamente al porting Next.js (§8.2).
 
 ### 8.4 Activity scheduling
@@ -531,7 +542,7 @@ Se sei Claude (o un'altra persona) che deve continuare:
 6. Chiedi al user quale tranche vuole aprire (vedi §8).
 
 **Prossime tranche candidate** (in ordine di priorità strategica):
-- **§8.3-AI-PROPOSE** — proposte di task generate dal curator, approvate dal tutor. Chiude il loop "fine lezione → memoria → proposta → feed". Può riusare `POST /api/tutor/students/:id/activities` come sink dopo l'approvazione.
+- **§8.3-AI-PROPOSE sotto-tranche 2** — curator genera le proposte a fine sessione (schema e API approve/reject già pronti in sotto-tranche 1). Chiude il loop "fine lezione → memoria → proposta → feed". Richiede: aggiornare `CURATOR_SYSTEM_PROMPT` per includere un campo `proposals` nel JSON di output; `runCuratorForSession` legge il campo e inserisce in `activity_proposals` con status `pending` + `source_session_id`. Idempotenza: skip se ci sono già proposte da quella sessione. Test: girare una sessione end-to-end (student POST `/sessions/:id/close`), verificare che le proposte compaiano in `GET /tutor/proposals`.
 - **Fix globale ZodError in errorHandler** — bug pre-esistente, oggi workaroundato solo nelle rotte tutor write (vedi §10). Piccola, sicura, utile per pulire il comportamento delle altre rotte.
 - **§8.5 SSE streaming chat AI** — UX della chat migliora, ma è cosmetica rispetto al tutor panel.
 - **§8.4 Activity scheduling** — quando Chiara programma un task per "domani alle 18", il job lo renderà visibile al momento giusto.

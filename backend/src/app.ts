@@ -12,7 +12,7 @@ import aiThreadsRoutes from './routes/ai-threads.js';
 import humanThreadsRoutes from './routes/threads.js';
 import artifactsRoutes from './routes/artifacts.js';
 import adminRoutes from './routes/admin.js';
-import tutorRoutes from './routes/tutor.js';
+import tutorRoutes from './routes/tutor/index.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -55,25 +55,14 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   await app.register(authPlugin);
 
-  // ─── health ────────────────────────────────────────
-  app.get('/health', async () => ({ ok: true, now: new Date().toISOString() }));
-
-  // ─── API v1 ────────────────────────────────────────
-  await app.register(
-    async (v1) => {
-      await v1.register(authRoutes);
-      await v1.register(studentsRoutes);
-      await v1.register(sessionsRoutes);
-      await v1.register(aiThreadsRoutes);
-      await v1.register(humanThreadsRoutes);
-      await v1.register(artifactsRoutes);
-      await v1.register(adminRoutes);
-      await v1.register(tutorRoutes);
-    },
-    { prefix: '/api' },
-  );
-
   // ─── error handler ────────────────────────────────
+  // IMPORTANTE: va registrato PRIMA dei plugin che contengono rotte.
+  // Fastify incapsula ogni plugin in uno scope: al momento del register,
+  // lo scope del figlio fotografa gli handler del padre. Se settiamo
+  // setErrorHandler DOPO il register, gli errori nati dentro lo scope
+  // figlio non vedono il nostro handler e ricadono sul default di Fastify,
+  // che non sa leggere ZodError e ritorna 500 col dump degli issues.
+  // (Questo era il bug noto della §10 del HANDOFF, ora chiuso.)
   app.setErrorHandler((err, req, reply) => {
     if (err instanceof AppError) {
       reply.code(err.status).send({ message: err.message, code: err.code });
@@ -100,6 +89,24 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.setNotFoundHandler((_req, reply) => {
     reply.code(404).send({ message: 'Endpoint non trovato', code: 'NOT_FOUND' });
   });
+
+  // ─── health ────────────────────────────────────────
+  app.get('/health', async () => ({ ok: true, now: new Date().toISOString() }));
+
+  // ─── API v1 ────────────────────────────────────────
+  await app.register(
+    async (v1) => {
+      await v1.register(authRoutes);
+      await v1.register(studentsRoutes);
+      await v1.register(sessionsRoutes);
+      await v1.register(aiThreadsRoutes);
+      await v1.register(humanThreadsRoutes);
+      await v1.register(artifactsRoutes);
+      await v1.register(adminRoutes);
+      await v1.register(tutorRoutes);
+    },
+    { prefix: '/api' },
+  );
 
   return app;
 }

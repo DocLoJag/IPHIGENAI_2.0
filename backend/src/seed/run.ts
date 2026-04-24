@@ -31,6 +31,7 @@ async function wipe(): Promise<void> {
     `TRUNCATE TABLE
        exercise_attempts, exercises,
        completions, activity_proposals, activities,
+       tutor_notes,
        messages, threads, ai_threads,
        topic_edges, topic_nodes,
        artifacts, sessions,

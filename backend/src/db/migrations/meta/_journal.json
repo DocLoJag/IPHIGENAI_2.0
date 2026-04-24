@@ -15,6 +15,13 @@
       "when": 1777031726126,
       "tag": "0001_watery_secret_warriors",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1777043895175,
+      "tag": "0002_dapper_the_stranger",
+      "breakpoints": true
     }
   ]
 }

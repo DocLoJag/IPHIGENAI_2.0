@@ -10,6 +10,7 @@ import { db, closePostgres } from '../db/postgres.js';
 import { connectMongo, closeMongo, collections } from '../db/mongo.js';
 import {
   activities,
+  activityProposals,
   aiThreads,
   artifacts,
   completions,
@@ -29,7 +30,7 @@ async function wipe(): Promise<void> {
   await rawSql.unsafe(
     `TRUNCATE TABLE
        exercise_attempts, exercises,
-       completions, activities,
+       completions, activity_proposals, activities,
        messages, threads, ai_threads,
        topic_edges, topic_nodes,
        artifacts, sessions,
@@ -432,6 +433,54 @@ export async function seedDemo(): Promise<void> {
   await db.insert(topicEdges).values(
     edges.map(([a, b]) => ({ studentId: 'student-luca', nodeA: a, nodeB: b })),
   );
+
+  console.log('[seed] proposte di task (dal curator, in attesa di Chiara)');
+
+  await db.insert(activityProposals).values([
+    {
+      id: 'prop-seed-delta-recap',
+      studentId: 'student-luca',
+      sourceSessionId: 'sess-2026-04-21-math',
+      status: 'pending',
+      kind: 'review',
+      subject: 'matematica',
+      title: 'Ripasso del delta con coefficiente negativo',
+      kicker: 'prima della verifica di mercoledì',
+      estimatedMinutes: 20,
+      priority: 10,
+      rationale:
+        'Durante la sessione Luca si è bloccato quando il coefficiente direttore era negativo. Proporrei di dedicare un quarto d\'ora a rivederlo con calma prima del compito.',
+      createdAt: new Date('2026-04-21T22:16:00+02:00'),
+    },
+    {
+      id: 'prop-seed-promessi-cap5',
+      studentId: 'student-luca',
+      status: 'pending',
+      kind: 'guided-reading',
+      subject: 'italiano',
+      title: 'Lettura ad alta voce del capitolo 5 dei Promessi Sposi',
+      kicker: 'continuità con il capitolo 4',
+      estimatedMinutes: 20,
+      priority: 20,
+      rationale:
+        'Il capitolo 4 è scorso bene. Il 5 introduce il personaggio di fra Cristoforo: proseguire nella stessa modalità consolida il ritmo di lettura.',
+      createdAt: new Date('2026-04-21T22:45:00+02:00'),
+    },
+    {
+      id: 'prop-seed-logica-insiemi',
+      studentId: 'student-luca',
+      status: 'pending',
+      kind: 'quick-test',
+      subject: 'logica',
+      title: 'Cinque domande sugli insiemi',
+      kicker: 'dallo stumble point del quiz precedente',
+      estimatedMinutes: 10,
+      priority: 30,
+      rationale:
+        'Nell\'ultimo quiz di logica gli insiemi sono rimasti incerti. Una batteria breve aiuterebbe a isolare dove è il dubbio.',
+      createdAt: new Date('2026-04-22T09:00:00+02:00'),
+    },
+  ]);
 
   console.log('[seed] done');
 }

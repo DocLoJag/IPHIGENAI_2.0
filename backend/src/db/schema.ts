@@ -39,6 +39,7 @@ export const topicState = pgEnum('topic_state', [
   'behind',
 ]);
 export const messageKind = pgEnum('message_kind', ['student', 'tutor']);
+export const proposalStatus = pgEnum('proposal_status', ['pending', 'approved', 'rejected']);
 
 // ─── users / students ───────────────────────────────────────────────
 export const users = pgTable('users', {
@@ -276,6 +277,49 @@ export const artifacts = pgTable(
   }),
 );
 
+// ─── activity proposals (proposte di task dal curator al tutor) ────
+// Flusso: il curator a fine sessione suggerisce attività per lo studente;
+// il tutor le vede in coda, può approvare (→ crea una activity) o rifiutare.
+// Additivo ad activities: non modifica la tabella esistente.
+export const activityProposals = pgTable(
+  'activity_proposals',
+  {
+    id: text('id').primaryKey(),
+    studentId: text('student_id')
+      .notNull()
+      .references(() => users.id),
+    // Sessione da cui la proposta è nata. Può essere null solo se, in futuro,
+    // creiamo proposte non legate a una sessione specifica.
+    sourceSessionId: text('source_session_id').references(() => sessions.id),
+    status: proposalStatus('status').notNull().default('pending'),
+    kind: activityKind('kind').notNull(),
+    subject: text('subject').notNull(),
+    title: text('title').notNull(),
+    kicker: text('kicker'),
+    estimatedMinutes: integer('estimated_minutes'),
+    priority: integer('priority').notNull().default(100),
+    scheduledFor: timestamp('scheduled_for', { withTimezone: true }),
+    // Motivazione scritta dal curator, in prima persona: "propongo questo perché…".
+    rationale: text('rationale'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    // Quando e da chi la proposta è stata approvata/rifiutata.
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    decidedBy: text('decided_by').references(() => users.id),
+    // Se approvata, riferimento alla activity creata. Null altrimenti.
+    createdActivityId: text('created_activity_id').references(() => activities.id),
+    // Se rifiutata, motivazione breve (opzionale, utile per loop di tuning del curator).
+    rejectionReason: text('rejection_reason'),
+  },
+  (t) => ({
+    byStudentStatus: index('activity_proposals_student_status').on(
+      t.studentId,
+      t.status,
+      t.createdAt,
+    ),
+    byStatusRecent: index('activity_proposals_status_recent').on(t.status, t.createdAt),
+  }),
+);
+
 // ─── tutor notes (appunti privati del tutor sullo studente) ────────
 export const tutorNotes = pgTable(
   'tutor_notes',
@@ -324,4 +368,5 @@ export type TopicNodeRow = typeof topicNodes.$inferSelect;
 export type TopicEdgeRow = typeof topicEdges.$inferSelect;
 export type ArtifactRow = typeof artifacts.$inferSelect;
 export type TutorNoteRow = typeof tutorNotes.$inferSelect;
+export type ActivityProposalRow = typeof activityProposals.$inferSelect;
 export type JobLogRow = typeof jobLog.$inferSelect;

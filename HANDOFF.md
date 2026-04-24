@@ -2,7 +2,7 @@
 
 **Snapshot:** 2026-04-24
 **Owner:** Loris (DocLoJag / lojagannath@gmail.com) — **non sa programmare**: può verificare solo dal browser/UI. Tutta la parte tecnica (implementazione, git workflow, deploy, test E2E via curl) va portata end-to-end dall'agente. Non chiedere al owner scelte su merge/PR/push: scegli secondo il pattern del repo (push diretto su main) e procedi.
-**Fase:** pilota in preparazione, nessuno studente ancora collegato. **Tranche §8.1 (frontend ↔ backend reale) completata. Tranche §8.3-READ (tutor panel backend read-only) completata. Tranche §8.3-WRITE sotto-tranche 2 (tutor panel backend — activities CRUD) completata. Tranche §8.3-WRITE sotto-tranche 3 (tutor panel backend — note private tutor) completata. Tranche §8.3-AI-PROPOSE sotto-tranche 1 (tutor panel backend — proposte task: schema + API tutor approve/reject) completata.**
+**Fase:** pilota in preparazione, nessuno studente ancora collegato. **Tranche §8.1 (frontend ↔ backend reale) completata. Tranche §8.3-READ (tutor panel backend read-only) completata. Tranche §8.3-WRITE sotto-tranche 2 (tutor panel backend — activities CRUD) completata. Tranche §8.3-WRITE sotto-tranche 3 (tutor panel backend — note private tutor) completata. Tranche §8.3-AI-PROPOSE sotto-tranche 1 (tutor panel backend — proposte task: schema + API tutor approve/reject) completata. Tranche §10-CLEANUP (fix globale ZodError + wipe completo + split routes/tutor) completata.**
 
 Questo documento serve a far ripartire un agente o una persona da zero sapendo esattamente dove siamo. Leggilo top-to-bottom — poi se vuoi lo schema di dettaglio passa a `IPHIGENAI_2_0_VISIONE.md` e `project/docs/`.
 
@@ -60,6 +60,22 @@ Punti non negoziabili:
   - `DELETE /api/tutor/notes/:id` → **hard delete** (sono appunti personali del tutor, non oggetti editoriali come activities che hanno soft-delete). Ritorna `{ok:true}` 200, oppure 404 se nota inesistente.
   - Validazione zod `.strict()` via helper `parseBody` (stesso workaround ZodError delle rotte activities).
   - Verifiche E2E contro Railway (32 casi): happy path completo (POST x3, GET lista+limit, PATCH con controllo updated_at > created_at, DELETE con 404 sul secondo tentativo); auth (luca→403, admin→403, senza cookie→401); validation (body vuoto→400, body mancante→400, campo extra→400 strict, body tipo sbagliato→400 sia POST che PATCH); 404 (studente fantasma, nota inesistente); regressione (GET /tutor/students, /overview, /notebook, home studente tutti 200). Stato demo ripulito con `/admin/reset-demo` dopo i test.
+- [x] **Pulizia pre-curator — errorHandler, wipe, split tutor** (2026-04-24, commit `6ddac6b`). Tre micro-tranche di manutenzione impacchettate insieme per abbassare la barriera alla prossima sotto-tranche:
+  - **ZodError globale risolto**. In `backend/src/app.ts` il `setErrorHandler` è stato spostato **prima** del register del sub-plugin `/api`. Fastify incapsula lo scope del figlio al momento del register: setErrorHandler chiamati dopo sul padre non raggiungono il figlio. Ora un body zod invalido in **qualsiasi** rotta ritorna 400 `VALIDATION`, non più 500 col dump degli issues. Rimosso il workaround locale `parseBody()` da tutte le rotte tutor; tornate a `schema.parse()` diretto, come nel resto del codebase. La gotcha in §10 è archiviata.
+  - **Seed wipe completo**. `tutor_notes` aggiunto al TRUNCATE di `seedDemo()`: un `/admin/reset-demo` ora ripulisce davvero, senza lasciare note private del run precedente. Verificato E2E: create nota → reset → `total:0`.
+  - **Split `routes/tutor.ts`** (767 righe → cartella di 7 file):
+    ```
+    backend/src/routes/tutor/
+    ├── guards.ts        — asserts ownership (student/note/activity/proposal)
+    │                     + assertSessionBelongsToStudent + activityKindSchema
+    ├── serializers.ts   — serializeTutorActivity/Note/Proposal/CuratorNote
+    ├── students.ts      — GET students, overview, notebook
+    ├── activities.ts    — POST/PATCH/DELETE activities
+    ├── notes.ts         — CRUD note private
+    ├── proposals.ts     — list/approve/reject proposals
+    └── index.ts         — registra i 4 sub-router
+    ```
+    Zero cambi di comportamento. `app.ts` ora importa `./routes/tutor/index.js`. Verificato E2E contro Railway: 3 login fresh, regressione su 7 GET endpoints, 4 POST write path, 4 validation strict, 9 auth (luca/admin/no-cookie su 3 path), 1 home studente. Tutto verde.
 - [x] **Tutor panel backend write — proposte task (§8.3-AI-PROPOSE sotto-tranche 1)** (2026-04-24, commit `e862e33`). **Seconda migration aggiuntiva**: `0002_dapper_the_stranger.sql` crea enum `proposal_status` (`pending`/`approved`/`rejected`) e tabella `activity_proposals` (17 colonne, 4 FK verso `users`/`sessions`/`activities`, 2 indici). Additiva, zero modifiche a tabelle esistenti. Quattro endpoint in `backend/src/routes/tutor.ts` sotto `requireRole('tutor')` + ownership helper `assertTutorOwnsProposal`:
   - `GET  /api/tutor/proposals?status=&limit=` → coda globale del tutor (join via studenti assegnati); senza proposte ritorna `{items:[],total:0}`.
   - `GET  /api/tutor/students/:id/proposals?status=&limit=` → proposte per singolo studente.
@@ -75,7 +91,7 @@ Punti non negoziabili:
   - `DELETE /api/tutor/activities/:id` → soft-delete via `dismissedAt=now()`.
   - Validazione zod `.strict()` su entrambi i body. `linked_session_id`, se fornito, deve puntare a una sessione dello stesso studente (blocca cross-student).
   - Verifiche E2E contro Railway (17 casi): happy path (POST→201, PATCH→200, DELETE→200 con dismissed_at, PATCH dismissed_at:null→ripristino), auth (luca→403, admin→403), kind invalido→400 VALIDATION, linked_session inesistente→400, studente fantasma→404, activity inesistente→404, campo extra nel body→400 (strict), PATCH body vuoto→200 no-op, regressione home studente→200. Stato demo ripulito con `/admin/reset-demo` dopo i test.
-  - Nota: l'errorHandler globale in `src/app.ts` non intercetta ZodError (si comporta come se fosse sovrascritto da uno scope plugin — da investigare in tranche dedicata, vedi §10). Workaround locale in `tutor.ts`: helper `parseBody(schema, data)` con `safeParse` che rilancia `badRequest('VALIDATION')`. Conseguenza: i body invalidi delle rotte tutor write tornano correttamente 400; il resto del codebase mantiene il bug pre-esistente.
+  - Nota storica: al momento dell'implementazione c'era un bug per cui l'errorHandler globale non intercettava ZodError; è stato usato un helper locale `parseBody()` come workaround. **Risolto il 2026-04-24 nel commit `6ddac6b`** (vedi §10) e il workaround è stato rimosso.
 
 ### Cosa manca per far girare davvero il pilota
 
@@ -129,7 +145,17 @@ Punti non negoziabili:
           │   ├── migrations/           ← generate con drizzle-kit
           │   ├── postgres.ts / mongo.ts / redis.ts
           │   └── migrate.ts
-          ├── routes/                   ← auth, students, sessions, ai-threads, threads, artifacts, admin
+          ├── routes/
+          │   ├── auth.ts, students.ts, sessions.ts
+          │   ├── ai-threads.ts, threads.ts, artifacts.ts, admin.ts
+          │   └── tutor/                ← sotto-dominio tutor panel (split 2026-04-24)
+          │       ├── index.ts          — entry, registra i 4 sub-router
+          │       ├── guards.ts         — asserts ownership + zod kind
+          │       ├── serializers.ts    — serializer "per tutor"
+          │       ├── students.ts       — GET students, overview, notebook
+          │       ├── activities.ts     — POST/PATCH/DELETE activities
+          │       ├── notes.ts          — CRUD note private
+          │       └── proposals.ts      — list/approve/reject proposals
           ├── services/                 ← anthropic client + tutor-agent + curator + system prompts
           ├── queues/curator.ts         ← BullMQ queue
           ├── workers/curator-worker.ts
@@ -140,6 +166,7 @@ Punti non negoziabili:
 ### Storia commit (ultimi a testa)
 
 ```
+6ddac6b refactor(backend): pulizia pre-curator — errorHandler, wipe seed, split tutor
 e862e33 feat(backend): tutor panel — proposte task §8.3-AI-PROPOSE sotto-tranche 1
 3364032 feat(backend): tutor panel — endpoint write note private §8.3 sotto-tranche 3
 1421e42 fix(backend): tutor write — body invalido ritorna 400 VALIDATION
@@ -426,7 +453,7 @@ Sostituire `POST /ai/threads/:id/message` con un endpoint che restituisce `text/
 - **Railway variabili riferite**: `${{ServiceName.VAR}}` richiede il nome **esatto** del servizio (incluso il suffisso random che Railway aggiunge, es. `Postgres-ZsQZ`). Meglio usare il picker UI di Railway che il typing manuale.
 - **Railway `preDeployCommand` vs `releaseCommand`**: su Railway la proprietà in `railway.json` per comandi che girano prima del start del servizio si chiama `preDeployCommand`. `releaseCommand` è nomenclatura Heroku e viene scartata silenziosamente dallo schema Railway (nessun errore nei log, il comando semplicemente non gira). Schema autoritativo: `backboard.railway.app/railway.schema.json`.
 - **BullMQ 5 — custom jobId non accetta `:`**: se passi `{ jobId: 'foo:bar' }` a `queue.add()` ricevi `500 Custom Id cannot contain :`. Usare `-` o `_` come separatore. Si è manifestato in `src/queues/curator.ts` ed era il blocker di `POST /sessions/:id/answer`.
-- **`err instanceof ZodError` nel setErrorHandler globale non matcha** (`src/app.ts`): in test E2E contro Railway, un body che fa fallire `schema.parse()` in un handler ritorna 500 con dump serializzato degli issues al posto di 400 VALIDATION. Il ramo dedicato a ZodError nell'errorHandler globale non viene eseguito — probabile che uno scope plugin (sensible? fastify-cors? auth?) registri un handler più specifico che intercetta prima. Workaround nelle rotte tutor write: helper locale `parseBody()` con `schema.safeParse()` che rilancia `badRequest('VALIDATION')`. Le altre rotte del codebase (es. `/tutor/students/:id/notebook?limit=xyz`) continuano a soffrirne. Fix globale pulito da fare in una tranche a sé stante (es. spostare `setErrorHandler` prima del register dei plugin, o usare `setSchemaErrorFormatter`).
+- **~~`err instanceof ZodError` nel setErrorHandler globale non matcha~~** — **RISOLTO il 2026-04-24 (commit `6ddac6b`)**. La causa reale: in Fastify 5 ogni `app.register(plugin)` crea uno scope incapsulato che **fotografa** gli handler del padre al momento del register. Se `setErrorHandler` viene chiamato DOPO il register del plugin che contiene le rotte, lo scope figlio non lo vede e gli errori ricadono sul default di Fastify (che non sa leggere ZodError → 500 col dump degli issues). Fix: spostare `setErrorHandler` (e `setNotFoundHandler`) **prima** di `await app.register(v1routes, { prefix: '/api' })` in `src/app.ts`. Rimosso di conseguenza il workaround `parseBody()` dalle rotte tutor: tutte tornate a `schema.parse()` diretto, come nel resto del codebase. Un body zod invalido su **qualsiasi** rotta (anche admin, students, sessions) ora ritorna 400 `VALIDATION` pulito. Verificato in produzione con `POST /api/admin/users {}`.
 - **Chrome incognito blocca i cookie di terze parti di default**: se servi il frontend su `http://localhost:5173` e l'API è su un dominio diverso (Railway), in incognito il cookie di sessione viene scartato e il login sembra "non autorizzato". In modalità normale funziona. Sparirà quando frontend e API condivideranno lo stesso root domain. Non è un bug del backend.
 - **Hero null-safe in Home**: `current_session: null` è uno stato legittimo (nessuna sessione attiva). Il componente `Hero` in `project/app/pages/Home.jsx` deve gestirlo — se si aggiungono nuovi componenti che leggono il bundle `/students/me/home`, controllare sempre i campi nullable.
 - **CRLF warnings di Git su Windows**: ignorabili.
@@ -543,7 +570,6 @@ Se sei Claude (o un'altra persona) che deve continuare:
 
 **Prossime tranche candidate** (in ordine di priorità strategica):
 - **§8.3-AI-PROPOSE sotto-tranche 2** — curator genera le proposte a fine sessione (schema e API approve/reject già pronti in sotto-tranche 1). Chiude il loop "fine lezione → memoria → proposta → feed". Richiede: aggiornare `CURATOR_SYSTEM_PROMPT` per includere un campo `proposals` nel JSON di output; `runCuratorForSession` legge il campo e inserisce in `activity_proposals` con status `pending` + `source_session_id`. Idempotenza: skip se ci sono già proposte da quella sessione. Test: girare una sessione end-to-end (student POST `/sessions/:id/close`), verificare che le proposte compaiano in `GET /tutor/proposals`.
-- **Fix globale ZodError in errorHandler** — bug pre-esistente, oggi workaroundato solo nelle rotte tutor write (vedi §10). Piccola, sicura, utile per pulire il comportamento delle altre rotte.
 - **§8.5 SSE streaming chat AI** — UX della chat migliora, ma è cosmetica rispetto al tutor panel.
 - **§8.4 Activity scheduling** — quando Chiara programma un task per "domani alle 18", il job lo renderà visibile al momento giusto.
 - **§8.3-UI / §8.2 Porting a Next.js** — infrastrutturale, rimandabile.

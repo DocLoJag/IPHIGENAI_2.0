@@ -276,6 +276,27 @@ export const artifacts = pgTable(
   }),
 );
 
+// ─── tutor notes (appunti privati del tutor sullo studente) ────────
+export const tutorNotes = pgTable(
+  'tutor_notes',
+  {
+    id: text('id').primaryKey(),
+    studentId: text('student_id')
+      .notNull()
+      .references(() => users.id),
+    tutorId: text('tutor_id')
+      .notNull()
+      .references(() => users.id),
+    body: text('body').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    byStudentRecent: index('tutor_notes_student_recent').on(t.studentId, t.createdAt),
+    byTutorStudent: index('tutor_notes_tutor_student').on(t.tutorId, t.studentId),
+  }),
+);
+
 // ─── job log (outbox BullMQ) ────────────────────────────────────────
 export const jobLog = pgTable('job_log', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),
@@ -302,4 +323,5 @@ export type AiThreadRow = typeof aiThreads.$inferSelect;
 export type TopicNodeRow = typeof topicNodes.$inferSelect;
 export type TopicEdgeRow = typeof topicEdges.$inferSelect;
 export type ArtifactRow = typeof artifacts.$inferSelect;
+export type TutorNoteRow = typeof tutorNotes.$inferSelect;
 export type JobLogRow = typeof jobLog.$inferSelect;

@@ -7,6 +7,7 @@ import {
   completions,
   sessions,
   students,
+  tutorNotes,
   users,
 } from '../db/schema.js';
 import { collections } from '../db/mongo.js';
@@ -32,6 +33,20 @@ async function assertTutorOwnsStudent(tutorId: string, studentId: string) {
   if (!s) throw notFound('Studente non trovato');
   if (s.tutorId !== tutorId) throw forbidden('Studente non assegnato a questo tutor');
   return s;
+}
+
+async function assertTutorOwnsNote(tutorId: string, noteId: string) {
+  const [n] = await db
+    .select()
+    .from(tutorNotes)
+    .where(eq(tutorNotes.id, noteId))
+    .limit(1);
+  if (!n) throw notFound('Nota non trovata');
+  // Solo l'autore può leggere/modificare/cancellare la propria nota privata.
+  // Anche un tutor che ha ricevuto in riassegnazione lo studente non vede
+  // le note scritte da un collega: sono appunti personali, non condivisi.
+  if (n.tutorId !== tutorId) throw forbidden('Nota non di questo tutor');
+  return n;
 }
 
 async function assertTutorOwnsActivity(tutorId: string, activityId: string) {
@@ -139,6 +154,33 @@ function parseBody<T>(schema: z.ZodType<T>, data: unknown): T {
     throw badRequest('Richiesta non valida', 'VALIDATION');
   }
   return r.data;
+}
+
+const createNoteBody = z
+  .object({
+    body: z.string().trim().min(1).max(10000),
+  })
+  .strict();
+
+const patchNoteBody = z
+  .object({
+    body: z.string().trim().min(1).max(10000),
+  })
+  .strict();
+
+const notesListQuery = z.object({
+  limit: z.coerce.number().int().positive().max(100).default(20),
+});
+
+function serializeTutorNote(n: typeof tutorNotes.$inferSelect) {
+  return {
+    id: n.id,
+    student_id: n.studentId,
+    tutor_id: n.tutorId,
+    body: n.body,
+    created_at: n.createdAt.toISOString(),
+    updated_at: n.updatedAt.toISOString(),
+  };
 }
 
 function serializeCuratorNote(n: {
@@ -406,6 +448,91 @@ export default async function tutorRoutes(app: FastifyInstance) {
 
       if (!row) throw notFound('Attività non trovata');
       return serializeTutorActivity(row);
+    },
+  );
+
+  // POST /tutor/students/:id/notes — crea una nota privata del tutor sullo studente
+  app.post<{ Params: { id: string } }>(
+    '/tutor/students/:id/notes',
+    guard,
+    async (req, reply) => {
+      const tutorId = req.principal!.sub;
+      const studentId = req.params.id;
+      await assertTutorOwnsStudent(tutorId, studentId);
+
+      const body = parseBody(createNoteBody, req.body ?? {});
+
+      const [row] = await db
+        .insert(tutorNotes)
+        .values({
+          id: genId.tutorNote(),
+          studentId,
+          tutorId,
+          body: body.body,
+        })
+        .returning();
+
+      if (!row) throw notFound('Creazione nota fallita');
+      reply.code(201);
+      return serializeTutorNote(row);
+    },
+  );
+
+  // GET /tutor/students/:id/notes — lista (paginata) delle proprie note su quello studente
+  app.get<{ Params: { id: string } }>(
+    '/tutor/students/:id/notes',
+    guard,
+    async (req) => {
+      const tutorId = req.principal!.sub;
+      const studentId = req.params.id;
+      await assertTutorOwnsStudent(tutorId, studentId);
+
+      const { limit } = notesListQuery.parse(req.query ?? {});
+
+      const rows = await db
+        .select()
+        .from(tutorNotes)
+        .where(and(eq(tutorNotes.studentId, studentId), eq(tutorNotes.tutorId, tutorId)))
+        .orderBy(desc(tutorNotes.createdAt))
+        .limit(limit);
+
+      return { items: rows.map(serializeTutorNote), total: rows.length };
+    },
+  );
+
+  // PATCH /tutor/notes/:id — aggiorna il body della nota (solo l'autore)
+  app.patch<{ Params: { id: string } }>(
+    '/tutor/notes/:id',
+    guard,
+    async (req) => {
+      const tutorId = req.principal!.sub;
+      const noteId = req.params.id;
+      await assertTutorOwnsNote(tutorId, noteId);
+
+      const body = parseBody(patchNoteBody, req.body ?? {});
+
+      const [row] = await db
+        .update(tutorNotes)
+        .set({ body: body.body, updatedAt: new Date() })
+        .where(eq(tutorNotes.id, noteId))
+        .returning();
+
+      if (!row) throw notFound('Nota non trovata');
+      return serializeTutorNote(row);
+    },
+  );
+
+  // DELETE /tutor/notes/:id — cancella definitivamente la nota (solo l'autore)
+  app.delete<{ Params: { id: string } }>(
+    '/tutor/notes/:id',
+    guard,
+    async (req) => {
+      const tutorId = req.principal!.sub;
+      const noteId = req.params.id;
+      await assertTutorOwnsNote(tutorId, noteId);
+
+      await db.delete(tutorNotes).where(eq(tutorNotes.id, noteId));
+      return { ok: true };
     },
   );
 }

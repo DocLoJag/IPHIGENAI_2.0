@@ -19,6 +19,7 @@ export const id = {
   message: () => `msg-${randId(10)}`,
   aiMessage: () => `ai-${randId(10)}`,
   artifact: () => `art-${randId(10)}`,
+  tutorNote: () => `tnote-${randId(10)}`,
   node: () => `n-${randId(6)}`,
   user: (role: string, hint: string) =>
     `${role}-${hint.toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 24) || randId(6)}`,

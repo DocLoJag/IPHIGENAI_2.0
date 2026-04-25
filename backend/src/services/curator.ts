@@ -198,37 +198,30 @@ export async function runCuratorForSession(sessionId: string): Promise<void> {
       .where(and(eq(topicNodes.studentId, s.studentId), eq(topicNodes.id, sug.topic_id)));
   }
 
-  // 5) proposte di task per il tutor (pending). Additivo: se per qualche motivo
-  // la sessione ha già proposte associate (es. seed), non duplichiamo.
+  // 5) proposte di task per il tutor (pending). L'idempotency vera è già il
+  // check della nota Mongo all'inizio di runCuratorForSession: se siamo qui,
+  // questa è la prima esecuzione per la sessione e nessuna proposta da curator
+  // è stata ancora inserita.
   const drafts = validateProposals(parsed.proposals);
   if (drafts.length > 0) {
-    const already = await db
-      .select({ id: activityProposals.id })
-      .from(activityProposals)
-      .where(eq(activityProposals.sourceSessionId, s.id))
-      .limit(1);
-    if (already.length === 0) {
-      const now = new Date();
-      await db.insert(activityProposals).values(
-        drafts.map((d) => ({
-          id: mkId.proposal(),
-          studentId: s.studentId,
-          sourceSessionId: s.id,
-          status: 'pending' as const,
-          kind: d.kind,
-          subject: d.subject,
-          title: d.title,
-          kicker: d.kicker ?? null,
-          estimatedMinutes: d.estimated_minutes ?? null,
-          priority: d.priority ?? 100,
-          rationale: d.rationale ?? null,
-          createdAt: now,
-        })),
-      );
-      console.log(`[curator] ${drafts.length} proposte inserite per sessione ${s.id}`);
-    } else {
-      console.log(`[curator] proposte già esistenti per ${s.id}, skip insert`);
-    }
+    const now = new Date();
+    await db.insert(activityProposals).values(
+      drafts.map((d) => ({
+        id: mkId.proposal(),
+        studentId: s.studentId,
+        sourceSessionId: s.id,
+        status: 'pending' as const,
+        kind: d.kind,
+        subject: d.subject,
+        title: d.title,
+        kicker: d.kicker ?? null,
+        estimatedMinutes: d.estimated_minutes ?? null,
+        priority: d.priority ?? 100,
+        rationale: d.rationale ?? null,
+        createdAt: now,
+      })),
+    );
+    console.log(`[curator] ${drafts.length} proposte inserite per sessione ${s.id}`);
   }
 
   console.log(`[curator] sessione ${s.id} processata`);

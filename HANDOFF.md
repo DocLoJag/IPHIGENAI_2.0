@@ -781,8 +781,9 @@ Se sei Claude (o un'altra persona) che deve continuare:
 6. Chiedi al user quale tranche vuole aprire (vedi §8).
 
 **Prossime tranche candidate** (in ordine di priorità strategica):
-- **§8.6 sotto-tranche 3 — integrazione AI** (gli allegati immagine/PDF passano come content block ad Anthropic, così la chat AI legge la foto del compito). È la tranche che dà il valore vero: oggi l'AI risponde "non vedo le immagini, mi dispiace" quando lo studente allega una foto. Il backend del messaggio AI deve estendersi per ricevere `attachment_ids` (o continuare a parsare il link `📎 ... — /api/uploads/:id` come fallback retro-compat) e tradurli in content block `image`/`document` base64 per Anthropic. La UI è già pronta (paperclip + chip preview + pagina `/files`).
-- **§8.3-UI sotto-tranche 3b** — notebook curator paginato esteso (oggi solo l'ultima nota), CRUD utenti via UI admin. Da fare quando l'uso reale lo richiede. (St3a — ripristino scartati — già fatta; st3b parziale — UI admin minimale — già fatta.)
+- **§8.3-UI sotto-tranche 3b residuo** — notebook curator paginato esteso (oggi nella scheda tutor mostriamo solo l'ultima nota), CRUD utenti via UI admin (oggi via curl). Da fare quando l'uso reale lo richiede. (St3a — ripristino scartati — già fatta; st3b parziale — UI admin minimale — già fatta.)
+- **Cleanup batch dei blob GridFS soft-deleted** — nessun job che cancella i `attachments.deleted_at < now() - 30d` + il blob GridFS corrispondente. Oggi i soft-deleted restano per sempre. ~30 righe, non urgente finché lo storage non cresce.
+- **Cache LRU dei base64 dei content block AI** — la replay history rilegge ogni allegato da GridFS ad ogni turno chat (vedi §8.6-st3). Per il pilota (singolo studente, ~10 turni a sessione) è accettabile, ma diventerà sensibile se i thread crescono o se gli allegati sono PDF di qualche MB. Cache LRU process-wide o Redis-backed.
 - **Compliance pre-pilota (§12 visione)** — DPIA, TIA, modulo consenso parentale aggiornato, diritti dell'interessato in UI. Non è una tranche di codice ma è il vero blocker per introdurre studenti reali.
 - **§8.2 Porting a Next.js** — infrastrutturale, rimandabile finché il pilota può girare con l'attuale frontend statico.
 

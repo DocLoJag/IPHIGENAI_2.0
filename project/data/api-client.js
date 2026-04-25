@@ -193,6 +193,110 @@
     },
   };
 
+  // ─── SSE streaming POST ─────────────────────────────
+  // Apre una richiesta POST verso un endpoint che risponde con
+  // text/event-stream e invoca i callback `on[event](data)` per ogni
+  // evento ricevuto. Pattern usato da AIChat per la chat tutor in streaming.
+  //
+  // Callbacks:
+  //   { meta(d), delta(d), done(d), error(d), message({event, data}) }
+  // Tutti opzionali. `message` è il fallback per eventi non mappati.
+  //
+  // Risolve quando lo stream si chiude regolarmente. Throwa se la risposta
+  // HTTP iniziale non è 2xx (in quel caso prova a leggere il body JSON
+  // dell'errore dal backend, come per le altre chiamate).
+  api.stream = async function streamRequest(path, body, callbacks) {
+    callbacks = callbacks || {};
+    const url = API_BASE + path;
+    log('req', 'POST', url + ' (stream)', body || '');
+
+    let res;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream',
+        },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+    } catch (netErr) {
+      const err = new Error('Errore di rete. Controlla la connessione.');
+      err.status = 0;
+      err.cause = netErr;
+      log('err', 'POST', url + ' (stream)', netErr.message);
+      throw err;
+    }
+
+    if (!res.ok) {
+      let data = null;
+      try { data = await res.json(); } catch { /* no body */ }
+      const err = new Error((data && data.message) || `Errore ${res.status}`);
+      err.status = res.status;
+      if (data && data.code) err.code = data.code;
+      log('err', 'POST', url + ' (stream)', err.message);
+      throw err;
+    }
+
+    if (!res.body || !res.body.getReader) {
+      const err = new Error('Streaming non supportato dal browser');
+      err.status = 0;
+      err.code = 'STREAM_UNSUPPORTED';
+      throw err;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+
+    const flush = (raw) => {
+      // Un blocco SSE: una serie di righe terminate da blank line. Le righe
+      // che ci interessano sono `event: <name>` e `data: <payload>`.
+      let event = 'message';
+      const dataLines = [];
+      for (const line of raw.split('\n')) {
+        if (line.startsWith('event:')) {
+          event = line.slice(6).trim();
+        } else if (line.startsWith('data:')) {
+          dataLines.push(line.slice(5).replace(/^ /, ''));
+        }
+        // ignora `:` (commenti/heartbeat) e `id:`/`retry:` (non li usiamo)
+      }
+      if (!dataLines.length) return;
+      let data;
+      try {
+        data = JSON.parse(dataLines.join('\n'));
+      } catch (e) {
+        log('err', 'POST', url + ' (stream)', 'JSON malformato in evento ' + event);
+        return;
+      }
+      const cb = callbacks[event];
+      if (cb) cb(data);
+      else if (callbacks.message) callbacks.message({ event, data });
+    };
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let idx;
+        while ((idx = buffer.indexOf('\n\n')) !== -1) {
+          const raw = buffer.slice(0, idx);
+          buffer = buffer.slice(idx + 2);
+          if (raw.trim()) flush(raw);
+        }
+      }
+      // flush eventuale evento residuo se il server non chiude con \n\n
+      if (buffer.trim()) flush(buffer);
+    } finally {
+      try { reader.releaseLock(); } catch { /* ignore */ }
+    }
+
+    log('res', 'POST', url + ' (stream)', '(closed)');
+  };
+
   // ─── React hook: useApi ─────────────────────────────────────────
   function useApi(path, { enabled = true, deps = [] } = {}) {
     const [data, setData] = useState(null);

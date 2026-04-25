@@ -21,70 +21,88 @@ function AIChatPage({ user, showToast }) {
     if (!thread || sending) return;
     setSending(true);
 
-    const optimisticStudentId = 'tmp-student-' + Date.now();
-    const aiPlaceholderId = 'tmp-ai-' + Date.now();
-
-    // Spingiamo subito la bolla studente + un placeholder AI vuoto in stato "streaming".
+    // Optimistic: appendiamo subito il messaggio studente con id provvisorio.
+    // Verrà sostituito dall'id definitivo quando arriva l'evento `meta` dal server.
+    const tmpUserId = 'tmp-user-' + Date.now();
     setThread((t) => ({
       ...t,
       messages: [
         ...t.messages,
-        { id: optimisticStudentId, from: 'student', at: new Date().toISOString(), text },
-        { id: aiPlaceholderId, from: 'ai', at: new Date().toISOString(), text: '', streaming: true },
+        { id: tmpUserId, from: 'student', text, at: new Date().toISOString() },
       ],
     }));
 
-    const replaceMessage = (predicate, replacer) =>
+    let aiPlaceholderId = null;
+
+    try {
+      await api.stream(
+        `/ai/threads/${thread.id}/message/stream`,
+        { text },
+        {
+          meta: ({ student, ai }) => {
+            aiPlaceholderId = ai.id;
+            // Sostituisci l'optimistic con i record definitivi e aggiungi
+            // il placeholder AI vuoto che riempiremo via `delta`.
+            setThread((t) => ({
+              ...t,
+              messages: [
+                ...t.messages.filter((m) => m.id !== tmpUserId),
+                student,
+                { id: ai.id, from: 'ai', at: ai.at, text: '' },
+              ],
+            }));
+          },
+          delta: ({ text: chunk }) => {
+            if (!aiPlaceholderId) return;
+            setThread((t) => ({
+              ...t,
+              messages: t.messages.map((m) =>
+                m.id === aiPlaceholderId ? { ...m, text: m.text + chunk } : m,
+              ),
+            }));
+          },
+          done: ({ message }) => {
+            // Sostituisci il placeholder col messaggio finale (id stabile + at backend).
+            setThread((t) => ({
+              ...t,
+              messages: t.messages.map((m) =>
+                m.id === aiPlaceholderId ? message : m,
+              ),
+            }));
+            aiPlaceholderId = message.id;
+          },
+          error: (e) => {
+            showToast('Errore streaming: ' + (e.message || 'interrotto'));
+            // Rimuovi placeholder AI parziale; il messaggio studente è già
+            // persistito lato server, quindi resta.
+            setThread((t) => ({
+              ...t,
+              messages: t.messages.filter((m) => m.id !== aiPlaceholderId),
+            }));
+          },
+        },
+      );
+    } catch (streamErr) {
+      // Streaming non disponibile (es. 404 se non deployato o errore di rete
+      // prima dell'apertura): fallback al POST sync. Il messaggio studente
+      // resta tra gli optimistic; lo rimuoviamo prima del fallback per
+      // evitare doppioni.
+      console.warn('[chat] streaming fallito, fallback sync:', streamErr.message);
       setThread((t) => ({
         ...t,
-        messages: t.messages.map((m) => (predicate(m) ? replacer(m) : m)),
+        messages: t.messages.filter(
+          (m) => m.id !== tmpUserId && m.id !== aiPlaceholderId,
+        ),
       }));
-
-    streamRef.current = api.stream(`/ai/threads/${thread.id}/stream`, { text }, {
-      onEvent: (name, data) => {
-        if (name === 'student') {
-          // sostituisci l'ottimistico con il messaggio persistito (id stabile)
-          replaceMessage(
-            (m) => m.id === optimisticStudentId,
-            () => ({ id: data.id, from: 'student', at: data.at, text: data.text }),
-          );
-        } else if (name === 'delta' && typeof data.text === 'string') {
-          replaceMessage(
-            (m) => m.id === aiPlaceholderId,
-            (m) => ({ ...m, text: (m.text || '') + data.text }),
-          );
-        } else if (name === 'done') {
-          replaceMessage(
-            (m) => m.id === aiPlaceholderId,
-            () => ({ id: data.id, from: 'ai', at: data.at, text: data.text, streaming: false }),
-          );
-        } else if (name === 'error') {
-          showToast('Errore: ' + (data && data.message ? data.message : 'risposta interrotta'));
-          // rimuovi il placeholder AI: lo studente vede comunque la sua bolla
-          setThread((t) => ({
-            ...t,
-            messages: t.messages.filter((m) => m.id !== aiPlaceholderId),
-          }));
-        }
-      },
-      onError: (err) => {
-        showToast('Errore: ' + err.message);
-        setThread((t) => ({
-          ...t,
-          messages: t.messages.filter((m) => m.id !== aiPlaceholderId),
-        }));
-      },
-      onClose: () => {
-        streamRef.current = null;
-        setSending(false);
-        // se il done è arrivato il placeholder è già stato sostituito;
-        // se invece lo stream si è chiuso senza done, lascia visibile quel che c'è.
-        setThread((t) => ({
-          ...t,
-          messages: t.messages.map((m) => (m.streaming ? { ...m, streaming: false } : m)),
-        }));
-      },
-    });
+      try {
+        const res = await api.post(`/ai/threads/${thread.id}/message`, { text });
+        setThread((t) => ({ ...t, messages: [...t.messages, ...res.messages] }));
+      } catch (e) {
+        showToast('Errore: ' + e.message);
+      }
+    } finally {
+      setSending(false);
+    }
   };
 
   if (loading || !thread) {

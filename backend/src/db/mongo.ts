@@ -56,6 +56,11 @@ export type AiMessageDoc = {
   from: 'ai' | 'student';
   at: Date;
   text: string;
+  // §8.6-st3: id degli allegati (tabella `attachments` su Postgres) inviati con
+  // il messaggio. Per i messaggi `student` la replay verso Anthropic costruisce
+  // un content block image/document per ciascuno; per i messaggi `ai` il campo
+  // resta vuoto/assente. Indicizzato su Postgres, qui solo riferito.
+  attachment_ids?: string[];
   model?: string;
   tokens_in?: number;
   tokens_out?: number;

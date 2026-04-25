@@ -22,22 +22,29 @@ function AIChatPage({ user, showToast }) {
     if (!text && !attachment) return;
     setSending(true);
 
-    // Allegato (§8.6 st2): finché il backend del messaggio AI non accetta
-    // attachment_ids (st3 — integrazione con content blocks Anthropic),
-    // appendiamo l'URL al testo del messaggio. Lo studente vede il link
-    // cliccabile nella propria bolla; il file resta accessibile via /uploads.
-    const fullText = attachment
-      ? (text ? text + '\n\n' : '') + `📎 ${attachment.filename} — ${attachment.url}`
-      : text;
+    // §8.6-st3: l'allegato passa al backend come `attachment_ids[]` separato
+    // dal testo. Il backend lo carica da GridFS e lo accoda come content block
+    // image/document nella chiamata Anthropic. Lo studente vede la chip con
+    // thumbnail nella propria bolla (renderata da ChatScreen via m.attachments).
+    const attachmentIds = attachment ? [attachment.id] : [];
+    const sentText = text || '';
 
     // Optimistic: appendiamo subito il messaggio studente con id provvisorio.
-    // Verrà sostituito dall'id definitivo quando arriva l'evento `meta` dal server.
+    // Includiamo l'attachment ottimisticamente così il thumbnail appare prima
+    // che il server confermi. Verrà sostituito dall'id definitivo quando arriva
+    // l'evento `meta` dal server.
     const tmpUserId = 'tmp-user-' + Date.now();
     setThread((t) => ({
       ...t,
       messages: [
         ...t.messages,
-        { id: tmpUserId, from: 'student', text: fullText, at: new Date().toISOString() },
+        {
+          id: tmpUserId,
+          from: 'student',
+          text: sentText,
+          at: new Date().toISOString(),
+          ...(attachment ? { attachments: [attachment] } : {}),
+        },
       ],
     }));
 
@@ -46,7 +53,7 @@ function AIChatPage({ user, showToast }) {
     try {
       await api.stream(
         `/ai/threads/${thread.id}/message/stream`,
-        { text: fullText },
+        { text: sentText, attachment_ids: attachmentIds },
         {
           meta: ({ student, ai }) => {
             aiPlaceholderId = ai.id;
@@ -104,7 +111,10 @@ function AIChatPage({ user, showToast }) {
         ),
       }));
       try {
-        const res = await api.post(`/ai/threads/${thread.id}/message`, { text: fullText });
+        const res = await api.post(`/ai/threads/${thread.id}/message`, {
+          text: sentText,
+          attachment_ids: attachmentIds,
+        });
         setThread((t) => ({ ...t, messages: [...t.messages, ...res.messages] }));
       } catch (e) {
         showToast('Errore: ' + e.message);

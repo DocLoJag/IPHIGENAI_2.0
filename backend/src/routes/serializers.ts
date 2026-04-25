@@ -5,7 +5,7 @@
  * (accoppiamento bidirezionale evitato). I serializer "ricchi" specifici del
  * pannello tutor restano in `routes/tutor/serializers.ts`.
  */
-import type { activities, completions, sessions, artifacts } from '../db/schema.js';
+import type { activities, attachments, completions, sessions, artifacts } from '../db/schema.js';
 
 export function serializeSession(s: typeof sessions.$inferSelect) {
   return {
@@ -52,6 +52,20 @@ export function serializeCompletion(c: typeof completions.$inferSelect) {
     completed_at: c.completedAt.toISOString(),
     duration_minutes: c.durationMinutes,
     outcome: c.outcome,
+  };
+}
+
+export function serializeAttachment(a: typeof attachments.$inferSelect) {
+  return {
+    id: a.id,
+    filename: a.filename,
+    mime: a.mime,
+    size_bytes: a.sizeBytes,
+    owner_id: a.ownerId,
+    student_id: a.studentId,
+    url: `/api/uploads/${a.id}`,
+    created_at: a.createdAt.toISOString(),
+    deleted_at: a.deletedAt ? a.deletedAt.toISOString() : null,
   };
 }
 

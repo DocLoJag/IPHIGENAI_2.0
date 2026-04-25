@@ -154,6 +154,8 @@ function TutorStudentPage({ studentId, user, showToast }) {
         <div>
           <CuratorNoteCard note={last_curator_note} />
 
+          <NotebookBlock studentId={studentId} />
+
           <ProposalsBlock
             proposals={proposals}
             loading={lProps}
@@ -233,6 +235,99 @@ function CuratorNoteCard({ note }) {
       {sig.next_step_hint && (
         <div style={{ marginTop: 8, fontSize: 13, color: 'var(--ink-soft)' }}>
           <strong style={{ fontFamily: 'var(--sans)', fontWeight: 600 }}>prossimo passo:</strong>{' '}
+          <span style={{ fontFamily: 'var(--serif)', fontStyle: 'italic' }}>{sig.next_step_hint}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Storico note curator (lazy + paginazione incrementale) ── */
+// CuratorNoteCard mostra solo l'ultima nota dal bundle overview. Questa
+// sezione apre lo storico completo via /notebook?limit=N. Parte chiusa,
+// "carica altre" alza il limit di PAGE_SIZE finché il backend torna meno
+// note del limit richiesto (= fine dei dati).
+const NOTEBOOK_PAGE = 10;
+
+function NotebookBlock({ studentId }) {
+  const [open, setOpen] = React.useState(false);
+  const [limit, setLimit] = React.useState(NOTEBOOK_PAGE);
+  const { data, loading, error } = useApi(
+    `/tutor/students/${studentId}/notebook?limit=${limit}`,
+    { enabled: open },
+  );
+
+  const items = data?.items ?? [];
+  // Se il backend ritorna meno note del limit chiesto, abbiamo finito.
+  const hasMore = items.length === limit;
+
+  return (
+    <div style={{ marginBottom: 28 }}>
+      <div className="row row--between" style={{ marginBottom: 14, borderBottom: '1.5px solid var(--ink)', paddingBottom: 8 }}>
+        <h2 style={{ fontSize: 22 }}>Storico curator</h2>
+        <button
+          className="btn btn--ghost"
+          onClick={() => setOpen((v) => !v)}
+          style={{ fontSize: 12, padding: '4px 10px' }}
+        >
+          {open ? 'nascondi' : 'mostra'}
+        </button>
+      </div>
+      {!open ? null : loading && items.length === 0 ? (
+        <Skeleton h={120} />
+      ) : error ? (
+        <div className="card card--soft" style={{ padding: 14, color: 'var(--danger)' }}>
+          Errore: {error.message}
+        </div>
+      ) : items.length === 0 ? (
+        <div className="soft" style={{ fontFamily: 'var(--serif)', fontStyle: 'italic', padding: '8px 0' }}>
+          Nessuna nota ancora. Il curator scrive a fine sessione.
+        </div>
+      ) : (
+        <>
+          {items.map((n) => <NotebookEntry key={n.session_id} note={n} />)}
+          {hasMore && (
+            <div style={{ textAlign: 'center', marginTop: 8 }}>
+              <button
+                className="btn btn--ghost"
+                disabled={loading}
+                onClick={() => setLimit((l) => l + NOTEBOOK_PAGE)}
+                style={{ fontSize: 12, padding: '4px 14px' }}
+              >
+                {loading ? 'carico…' : 'carica altre'}
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function NotebookEntry({ note }) {
+  const sig = note.signals || {};
+  const conf = typeof sig.confidence === 'number' ? Math.round(sig.confidence * 100) : null;
+  return (
+    <div style={{ borderTop: '1px dashed var(--ink-faint)', padding: '12px 0' }}>
+      <div className="hand small muted" style={{ marginBottom: 6 }}>{formatWhen(note.written_at)}</div>
+      <div style={{ fontFamily: 'var(--serif)', fontSize: 14, lineHeight: 1.55, whiteSpace: 'pre-wrap', color: 'var(--ink)' }}>
+        {note.body}
+      </div>
+      <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {sig.topic && <span className="pill">topic · {sig.topic}</span>}
+        {conf !== null && <span className="pill">conf · {conf}%</span>}
+      </div>
+      {Array.isArray(sig.stumble_points) && sig.stumble_points.length > 0 && (
+        <div style={{ marginTop: 6, fontSize: 12.5, color: 'var(--ink-soft)' }}>
+          <strong style={{ fontFamily: 'var(--sans)', fontWeight: 600 }}>nodi:</strong>{' '}
+          <span style={{ fontFamily: 'var(--serif)', fontStyle: 'italic' }}>
+            {sig.stumble_points.join(' · ')}
+          </span>
+        </div>
+      )}
+      {sig.next_step_hint && (
+        <div style={{ marginTop: 4, fontSize: 12.5, color: 'var(--ink-soft)' }}>
+          <strong style={{ fontFamily: 'var(--sans)', fontWeight: 600 }}>prossimo:</strong>{' '}
           <span style={{ fontFamily: 'var(--serif)', fontStyle: 'italic' }}>{sig.next_step_hint}</span>
         </div>
       )}

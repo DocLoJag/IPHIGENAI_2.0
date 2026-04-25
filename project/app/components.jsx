@@ -45,6 +45,41 @@ function TopBar({ current, user, onLogout }) {
   );
 }
 
+function TutorTopBar({ current, user, onLogout }) {
+  const links = [
+    { to: '/tutor', label: 'I miei studenti' },
+    { to: '/tutor/proposals', label: 'Proposte' },
+  ];
+  return (
+    <div className="topbar">
+      <div className="topbar__left">
+        <Link to="/tutor" className="topbar__logo">
+          Iphigen<span className="amp">AI</span>
+        </Link>
+        <span className="topbar__date">pannello tutor</span>
+      </div>
+      <nav className="topbar__nav">
+        {links.map((l) => (
+          <Link key={l.to} to={l.to} className={current === l.to ? 'on' : ''}>
+            {l.label}
+          </Link>
+        ))}
+      </nav>
+      <div className="topbar__user">
+        {user ? (
+          <>
+            <span className="muted small">{user.name}</span>
+            <span className="avatar avatar--muschio">{user.avatar_initial}</span>
+            <button className="btn btn--ghost" style={{ padding: '4px 10px', fontSize: 12 }} onClick={onLogout}>
+              esci
+            </button>
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function Greeting({ name, sub, size = 'lg' }) {
   const sizes = { sm: 28, md: 40, lg: 56 };
   return (
@@ -241,7 +276,7 @@ function Skeleton({ w = '100%', h = 16, style }) {
 }
 
 Object.assign(window, {
-  TopBar, Greeting, Constellation, ArtifactThumb,
+  TopBar, TutorTopBar, Greeting, Constellation, ArtifactThumb,
   AIBubble, ChatScreen,
   formatTime, formatWhen, Toast, Skeleton,
 });

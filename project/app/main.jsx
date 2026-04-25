@@ -24,7 +24,7 @@ function App() {
 
   const onLoggedIn = (u) => {
     setUser(u);
-    navigate('/home');
+    navigate(u.role === 'tutor' ? '/tutor' : '/home');
   };
   const onLogout = async () => {
     await api.post('/auth/logout', {});
@@ -50,7 +50,46 @@ function App() {
     );
   }
 
-  // Routes
+  // Tutor → pannello dedicato. Tutto ciò che non è /tutor* o /login viene
+  // riportato a /tutor (gli studenti hanno la loro home: il tutor non la usa).
+  if (user.role === 'tutor') {
+    const path = route.path;
+    let page;
+    let topCurrent = '/tutor';
+
+    if (path === '/' || path === '/home' || path === '/tutor') {
+      page = <TutorHomePage user={user} showToast={showToast} />;
+      topCurrent = '/tutor';
+    } else if (path === '/tutor/proposals') {
+      page = <TutorProposalsPage user={user} showToast={showToast} />;
+      topCurrent = '/tutor/proposals';
+    } else if (path.startsWith('/tutor/student/')) {
+      const id = path.replace('/tutor/student/', '');
+      page = <TutorStudentPage studentId={id} user={user} showToast={showToast} />;
+      topCurrent = '/tutor';
+    } else if (path === '/login') {
+      navigate('/tutor');
+      return null;
+    } else {
+      page = (
+        <div className="page">
+          <h1>Pagina non trovata</h1>
+          <p className="soft">Il percorso <code>{path}</code> non esiste nel pannello tutor.</p>
+          <Link to="/tutor" className="btn btn--ghost">← torna ai tuoi studenti</Link>
+        </div>
+      );
+    }
+
+    return (
+      <>
+        <TutorTopBar current={topCurrent} user={user} onLogout={onLogout} />
+        {page}
+        <Toast message={toast} onDone={() => setToast(null)} />
+      </>
+    );
+  }
+
+  // Studente / admin → routing originale
   const path = route.path;
   let page;
   let topCurrent = '/home';

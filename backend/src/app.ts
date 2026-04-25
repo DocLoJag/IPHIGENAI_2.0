@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import sensible from '@fastify/sensible';
+import rateLimit from '@fastify/rate-limit';
 import { ZodError } from 'zod';
 import { env } from './config/env.js';
 import { AppError } from './lib/errors.js';
@@ -28,6 +29,12 @@ export async function buildApp(): Promise<FastifyInstance> {
   });
 
   await app.register(sensible);
+
+  // Rate limit registrato in modalità global:false. Solo le rotte che lo
+  // attivano esplicitamente (al momento solo /auth/login) sono limitate.
+  // Store in-memory: per il pilota è sufficiente; se in futuro l'API gira con
+  // più repliche, passare a redis store usando il client già presente.
+  await app.register(rateLimit, { global: false });
 
   // Allowlist CORS: unione di FRONTEND_ORIGIN (legacy, singolo) e CORS_ALLOWED_ORIGINS (CSV).
   // Nessun wildcard: con credentials:true il browser rifiuta "*".

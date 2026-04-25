@@ -43,22 +43,39 @@ const proposalDraftSchema = z
 
 type ProposalDraft = z.infer<typeof proposalDraftSchema>;
 
-type CuratorOutput = {
-  narrative: string;
-  resume_blurb: string;
-  outcome: string;
-  signals: {
-    topic: string;
-    confidence: number;
-    stumble_points: string[];
-    next_step_hint: string;
-  };
-  topic_state_suggestion: {
-    topic_id: string | null;
-    new_state: TopicNodeRow['state'] | null;
-  };
-  proposals?: unknown;
-};
+// Validazione difensiva sul JSON dell'LLM. Se Claude restituisce qualcosa di
+// fuori specifica (confidence non numerica, stumble_points non array, ecc.)
+// lo normalizziamo in valori sicuri invece di scriverli grezzi su Mongo, dove
+// poi il tutor leggerebbe spazzatura. `.passthrough()` lascia passare campi
+// extra eventualmente aggiunti dal modello senza rompere il parsing.
+const curatorOutputSchema = z
+  .object({
+    narrative: z.string().trim().min(1).max(8000),
+    resume_blurb: z.string().trim().min(1).max(2000),
+    outcome: z.string().trim().min(1).max(1000),
+    signals: z
+      .object({
+        topic: z.string().trim().max(500).default(''),
+        confidence: z.number().min(0).max(1).default(0.5),
+        stumble_points: z.array(z.string().trim().max(500)).max(10).default([]),
+        next_step_hint: z.string().trim().max(1000).default(''),
+      })
+      .passthrough(),
+    topic_state_suggestion: z
+      .object({
+        topic_id: z.string().min(1).nullable().default(null),
+        new_state: z
+          .enum(['consolidated', 'working-on', 'fresh', 'to-review', 'behind'])
+          .nullable()
+          .default(null),
+      })
+      .nullable()
+      .default(null),
+    proposals: z.unknown().optional(),
+  })
+  .passthrough();
+
+type CuratorOutput = z.infer<typeof curatorOutputSchema>;
 
 export async function runCuratorForSession(sessionId: string): Promise<void> {
   // idempotenza: se esiste già una nota per questa sessione, skip
@@ -150,9 +167,10 @@ export async function runCuratorForSession(sessionId: string): Promise<void> {
     const jsonStart = raw.indexOf('{');
     const jsonEnd = raw.lastIndexOf('}');
     const json = jsonStart >= 0 && jsonEnd > jsonStart ? raw.slice(jsonStart, jsonEnd + 1) : raw;
-    parsed = JSON.parse(json) as CuratorOutput;
+    const rawObj = JSON.parse(json);
+    parsed = curatorOutputSchema.parse(rawObj);
   } catch (err) {
-    console.error('[curator] output non parsabile', err, raw);
+    console.error('[curator] output non parsabile o non conforme', err, raw);
     throw new Error('Curator output non valido');
   }
 

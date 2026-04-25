@@ -4,7 +4,7 @@ import { db } from '../db/postgres.js';
 import { artifacts } from '../db/schema.js';
 import { collections } from '../db/mongo.js';
 import { forbidden, notFound } from '../lib/errors.js';
-import { serializeArtifact } from './students.js';
+import { serializeArtifact } from './serializers.js';
 
 export default async function artifactsRoutes(app: FastifyInstance) {
   // GET /artifacts — restituisce gli artifact dello studente corrente

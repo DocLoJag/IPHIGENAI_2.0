@@ -1,7 +1,6 @@
 import { anthropic, models } from './anthropic.js';
 import { tutorSystemPrompt } from './system-prompts.js';
 import { collections, type AiMessageDoc } from '../db/mongo.js';
-import { id as mkId } from '../lib/ids.js';
 
 type TutorTurnInput = {
   threadId: string;
@@ -84,9 +83,8 @@ export async function runTutorTurn(input: TutorTurnInput): Promise<{
   };
   await msgCol.insertOne(aiDoc);
 
-  const studentId = mkId.aiMessage();
-  const aiId = mkId.aiMessage();
-
+  // ID dei messaggi: la coppia (thread_id, seq) è univoca nell'indice Mongo,
+  // quindi `${threadId}-${seq}` è una chiave deterministica e stabile per il client.
   return {
     messages: [
       {
@@ -103,7 +101,4 @@ export async function runTutorTurn(input: TutorTurnInput): Promise<{
       },
     ],
   };
-
-  void studentId;
-  void aiId;
 }

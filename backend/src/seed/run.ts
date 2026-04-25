@@ -139,6 +139,9 @@ export async function seedDemo(): Promise<void> {
     correctChoiceId: 'c-a',
     hint:
       "Guarda a: se è negativo, la parabola è a ∩. Prima ancora di calcolare il delta, questo ti dice dove cercare le soluzioni.",
+    feedbackCorrect:
+      'Esatto. Con a negativo la parabola è rivolta in basso — partiamo da qui.',
+    feedbackWrong: 'Non ancora. Guarda il segno di a prima di tutto.',
   });
 
   console.log('[seed] attività proposte');

@@ -59,30 +59,35 @@ export default async function adminRoutes(app: FastifyInstance) {
     const userId = mkId.user(body.role, body.username);
     const passwordHash = await hashPassword(body.password);
 
-    await db.insert(users).values({
-      id: userId,
-      role: body.role,
-      username: body.username,
-      passwordHash,
-      name: body.name,
-      fullName: body.full_name ?? null,
-      avatarInitial: body.avatar_initial ?? body.name.charAt(0).toUpperCase(),
-    });
+    const [u] = await db
+      .insert(users)
+      .values({
+        id: userId,
+        role: body.role,
+        username: body.username,
+        passwordHash,
+        name: body.name,
+        fullName: body.full_name ?? null,
+        avatarInitial: body.avatar_initial ?? body.name.charAt(0).toUpperCase(),
+      })
+      .returning();
+    if (!u) throw notFound('Inserimento utente fallito');
 
     let studentRow: typeof students.$inferSelect | undefined;
     if (body.role === 'student') {
-      await db.insert(students).values({
-        userId,
-        grade: body.grade ?? null,
-        school: body.school ?? null,
-        tutorId: body.tutor_id ?? null,
-      });
-      [studentRow] = await db.select().from(students).where(eq(students.userId, userId));
+      [studentRow] = await db
+        .insert(students)
+        .values({
+          userId,
+          grade: body.grade ?? null,
+          school: body.school ?? null,
+          tutorId: body.tutor_id ?? null,
+        })
+        .returning();
     }
 
-    const [u] = await db.select().from(users).where(eq(users.id, userId));
     reply.code(201);
-    return { user: serializeUser(u!, studentRow) };
+    return { user: serializeUser(u, studentRow) };
   });
 
   // GET /admin/users
@@ -108,26 +113,35 @@ export default async function adminRoutes(app: FastifyInstance) {
     if (body.name) updates.name = body.name;
     if (body.full_name !== undefined) updates.fullName = body.full_name;
     if (body.avatar_initial !== undefined) updates.avatarInitial = body.avatar_initial;
+    let u2: typeof users.$inferSelect = u;
     if (Object.keys(updates).length > 0) {
-      await db.update(users).set(updates).where(eq(users.id, u.id));
+      const [updated] = await db
+        .update(users)
+        .set(updates)
+        .where(eq(users.id, u.id))
+        .returning();
+      if (updated) u2 = updated;
     }
 
+    let s2: typeof students.$inferSelect | undefined;
     if (u.role === 'student') {
       const sUpdates: Partial<typeof students.$inferInsert> = {};
       if (body.grade !== undefined) sUpdates.grade = body.grade;
       if (body.school !== undefined) sUpdates.school = body.school;
       if (body.tutor_id !== undefined) sUpdates.tutorId = body.tutor_id;
       if (Object.keys(sUpdates).length > 0) {
-        await db.update(students).set(sUpdates).where(eq(students.userId, u.id));
+        const [updated] = await db
+          .update(students)
+          .set(sUpdates)
+          .where(eq(students.userId, u.id))
+          .returning();
+        s2 = updated;
+      } else {
+        [s2] = await db.select().from(students).where(eq(students.userId, u.id));
       }
     }
 
-    const [u2] = await db.select().from(users).where(eq(users.id, u.id));
-    const [s2] =
-      u.role === 'student'
-        ? await db.select().from(students).where(eq(students.userId, u.id))
-        : [undefined];
-    return { user: serializeUser(u2!, s2) };
+    return { user: serializeUser(u2, s2) };
   });
 
   // DELETE /admin/users/:id (soft delete)

@@ -5,7 +5,7 @@
  * - GET  /tutor/students/:id/notebook            storico note curator
  */
 import type { FastifyInstance } from 'fastify';
-import { and, desc, eq, isNull, lte, or } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, lte, or } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db/postgres.js';
 import {
@@ -17,7 +17,7 @@ import {
 } from '../../db/schema.js';
 import { collections } from '../../db/mongo.js';
 import { notFound } from '../../lib/errors.js';
-import { serializeActivity, serializeCompletion, serializeSession } from '../students.js';
+import { serializeActivity, serializeCompletion, serializeSession } from '../serializers.js';
 import { assertTutorOwnsStudent } from './guards.js';
 import { serializeCuratorNote } from './serializers.js';
 
@@ -39,30 +39,41 @@ export default async function tutorStudentsRoutes(app: FastifyInstance) {
       .where(and(eq(students.tutorId, tutorId), isNull(users.disabledAt)))
       .orderBy(users.name);
 
-    // Per ogni studente, ultima sessione (qualsiasi status) per dare un hint di "quando era vivo"
-    const items = await Promise.all(
-      rows.map(async ({ u, s }) => {
-        const [last] = await db
-          .select()
-          .from(sessions)
-          .where(eq(sessions.studentId, u.id))
-          .orderBy(desc(sessions.lastTouchedAt))
-          .limit(1);
+    // Risolvo "ultima sessione per studente" con UNA query invece di N+1.
+    // Carico tutte le sessioni dei miei studenti ordinate per (studentId, lastTouched DESC)
+    // e tengo la prima per ogni studentId, in memoria. Per il pilota (max ~10 studenti
+    // per tutor) è l'approccio più semplice e tipato; la query ha l'indice
+    // sessions_student_status su (studentId, status, lastTouchedAt).
+    const studentIds = rows.map((r) => r.u.id);
+    const lastByStudent = new Map<string, typeof sessions.$inferSelect>();
+    if (studentIds.length > 0) {
+      const allSessions = await db
+        .select()
+        .from(sessions)
+        .where(inArray(sessions.studentId, studentIds))
+        .orderBy(sessions.studentId, desc(sessions.lastTouchedAt));
+      for (const sess of allSessions) {
+        if (!lastByStudent.has(sess.studentId)) {
+          lastByStudent.set(sess.studentId, sess);
+        }
+      }
+    }
 
-        return {
-          id: u.id,
-          username: u.username,
-          name: u.name,
-          full_name: u.fullName,
-          avatar_initial: u.avatarInitial,
-          grade: s.grade,
-          school: s.school,
-          last_session_at: last?.lastTouchedAt.toISOString() ?? null,
-          last_session_subject: last?.subject ?? null,
-          last_session_status: last?.status ?? null,
-        };
-      }),
-    );
+    const items = rows.map(({ u, s }) => {
+      const last = lastByStudent.get(u.id);
+      return {
+        id: u.id,
+        username: u.username,
+        name: u.name,
+        full_name: u.fullName,
+        avatar_initial: u.avatarInitial,
+        grade: s.grade,
+        school: s.school,
+        last_session_at: last?.lastTouchedAt.toISOString() ?? null,
+        last_session_subject: last?.subject ?? null,
+        last_session_status: last?.status ?? null,
+      };
+    });
 
     return { items, total: items.length };
   });

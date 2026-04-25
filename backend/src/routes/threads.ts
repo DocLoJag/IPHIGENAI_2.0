@@ -55,22 +55,24 @@ export default async function humanThreadsRoutes(app: FastifyInstance) {
       if (!u) throw notFound();
 
       const kind: 'student' | 'tutor' = u.role === 'tutor' ? 'tutor' : 'student';
-      const row = {
-        id: mkId.message(),
-        threadId: t.id,
-        fromUser: p.sub,
-        kind,
-        text: body.text,
-      };
-      await db.insert(messages).values(row);
-      const now = new Date();
+      const [inserted] = await db
+        .insert(messages)
+        .values({
+          id: mkId.message(),
+          threadId: t.id,
+          fromUser: p.sub,
+          kind,
+          text: body.text,
+        })
+        .returning();
+      if (!inserted) throw notFound('Inserimento messaggio fallito');
       return {
         message: {
-          id: row.id,
-          from: row.fromUser,
-          kind: row.kind,
-          at: now.toISOString(),
-          text: row.text,
+          id: inserted.id,
+          from: inserted.fromUser,
+          kind: inserted.kind,
+          at: inserted.at.toISOString(),
+          text: inserted.text,
         },
       };
     },

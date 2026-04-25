@@ -12,7 +12,21 @@ const loginBody = z.object({
 });
 
 export default async function authRoutes(app: FastifyInstance) {
-  app.post('/auth/login', async (req, reply) => {
+  // Rate limit: 10 tentativi/IP/minuto. argon2id costa ~100ms a verifica:
+  // senza limite, una raffica satura la CPU del container Railway. Il numero
+  // è abbastanza basso per scoraggiare brute force, abbastanza alto per non
+  // bloccare un utente legittimo che sbaglia password un paio di volte.
+  app.post(
+    '/auth/login',
+    {
+      config: {
+        rateLimit: {
+          max: 10,
+          timeWindow: '1 minute',
+        },
+      },
+    },
+    async (req, reply) => {
     const body = loginBody.parse(req.body);
     const rows = await db
       .select()

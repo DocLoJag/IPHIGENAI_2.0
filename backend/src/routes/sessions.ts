@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { db } from '../db/postgres.js';
 import { exerciseAttempts, exercises, sessions } from '../db/schema.js';
 import { forbidden, notFound } from '../lib/errors.js';
-import { serializeSession } from './students.js';
+import { serializeSession } from './serializers.js';
 import { enqueueCuratorJob } from '../queues/curator.js';
 
 const answerBody = z.object({
@@ -75,9 +75,12 @@ export default async function sessionRoutes(app: FastifyInstance) {
       if (!ex) throw notFound('Esercizio non trovato');
 
       const correct = ex.correctChoiceId === body.choice_id;
+      // Feedback per-esercizio dal DB. Fallback generico se l'esercizio non ne ha
+      // ancora uno: il vecchio testo hard-coded sulla parabola era sbagliato per
+      // qualsiasi esercizio non di matematica.
       const feedback = correct
-        ? 'Esatto. Con a negativo la parabola è rivolta in basso — partiamo da qui.'
-        : 'Non ancora. Guarda il segno di a prima di tutto.';
+        ? ex.feedbackCorrect ?? 'Bene, risposta corretta.'
+        : ex.feedbackWrong ?? 'Non ancora. Riprova guardando bene la traccia.';
 
       await db.insert(exerciseAttempts).values({
         exerciseId: ex.id,

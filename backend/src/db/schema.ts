@@ -110,6 +110,11 @@ export const exercises = pgTable('exercises', {
   choices: jsonb('choices').$type<ExerciseChoice[]>().notNull(),
   correctChoiceId: text('correct_choice_id'),
   hint: text('hint'),
+  // Feedback per-esercizio: testo da mostrare allo studente quando risponde
+  // correttamente o sbagliato. Nullable per retro-compatibilità: se mancano,
+  // la rotta risponde con un fallback generico.
+  feedbackCorrect: text('feedback_correct'),
+  feedbackWrong: text('feedback_wrong'),
 });
 
 export const exerciseAttempts = pgTable('exercise_attempts', {

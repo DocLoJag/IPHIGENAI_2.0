@@ -193,9 +193,13 @@ function AIBubble() {
 function ChatScreen({ title, subtitle, avatarInitial, avatarClass, messages, onSend, onBack, meId }) {
   const [text, setText] = useState('');
   const bodyRef = useRef(null);
+  // Auto-scroll: includere la lunghezza dell'ultima risposta come dep, così
+  // anche durante lo streaming SSE (messages.length invariato, ma testo che cresce)
+  // restiamo incollati al fondo.
+  const lastLen = messages.length ? (messages[messages.length - 1].text || '').length : 0;
   useEffect(() => {
     if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
-  }, [messages.length]);
+  }, [messages.length, lastLen]);
 
   const submit = async (e) => {
     e.preventDefault();

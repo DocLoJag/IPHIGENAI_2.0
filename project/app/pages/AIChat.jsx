@@ -1,8 +1,9 @@
-/* Chat con tutor AI (fullscreen) */
+/* Chat con tutor AI (fullscreen) — risposta in streaming via SSE. */
 function AIChatPage({ user, showToast }) {
   const [thread, setThread] = useState(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const streamRef = useRef(null);
 
   useEffect(() => {
     (async () => {
@@ -10,10 +11,14 @@ function AIChatPage({ user, showToast }) {
       setThread(t);
       setLoading(false);
     })();
+    return () => {
+      // se l'utente naviga via mentre lo stream è in corso, chiudilo
+      if (streamRef.current) streamRef.current.abort();
+    };
   }, []);
 
   const onSend = async (text) => {
-    if (!thread) return;
+    if (!thread || sending) return;
     setSending(true);
 
     // Optimistic: appendiamo subito il messaggio studente con id provvisorio.
@@ -106,6 +111,7 @@ function AIChatPage({ user, showToast }) {
 
   const msgs = thread.messages.map((m) => ({
     ...m,
+    text: m.streaming && !m.text ? '…' : m.text,
     from_name: m.from === 'ai' ? 'il tutor' : 'tu',
   }));
 

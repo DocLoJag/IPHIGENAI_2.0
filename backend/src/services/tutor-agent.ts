@@ -133,8 +133,6 @@ export async function runTutorTurn(input: TutorTurnInput): Promise<{
     tokens_out: response.usage?.output_tokens,
   });
 
-  // ID dei messaggi: la coppia (thread_id, seq) è univoca nell'indice Mongo,
-  // quindi `${threadId}-${seq}` è una chiave deterministica e stabile per il client.
   return {
     messages: [
       {
@@ -152,3 +150,4 @@ export async function runTutorTurn(input: TutorTurnInput): Promise<{
     ],
   };
 }
+

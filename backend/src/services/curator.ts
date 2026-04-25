@@ -1,8 +1,10 @@
 import { and, eq, inArray } from 'drizzle-orm';
+import { z } from 'zod';
 import { anthropic, models } from './anthropic.js';
 import { CURATOR_SYSTEM_PROMPT } from './system-prompts.js';
 import { db } from '../db/postgres.js';
 import {
+  activityProposals,
   completions,
   exerciseAttempts,
   exercises,
@@ -14,6 +16,32 @@ import {
 } from '../db/schema.js';
 import { collections } from '../db/mongo.js';
 import { id as mkId } from '../lib/ids.js';
+
+// Limite al numero di proposte che il curator può generare per sessione.
+// Proteggerci da output patologici del modello; il prompt chiede 0-3.
+const MAX_PROPOSALS_PER_SESSION = 5;
+
+const proposalDraftSchema = z
+  .object({
+    kind: z.enum([
+      'review',
+      'guided-reading',
+      'quick-test',
+      'analysis',
+      'writing',
+      'exercise-set',
+      'reading',
+    ]),
+    subject: z.string().trim().min(1).max(200),
+    title: z.string().trim().min(1).max(500),
+    kicker: z.string().trim().max(500).nullable().optional(),
+    estimated_minutes: z.number().int().positive().max(600).nullable().optional(),
+    priority: z.number().int().min(0).max(10000).optional(),
+    rationale: z.string().trim().max(2000).nullable().optional(),
+  })
+  .strip();
+
+type ProposalDraft = z.infer<typeof proposalDraftSchema>;
 
 type CuratorOutput = {
   narrative: string;
@@ -29,6 +57,7 @@ type CuratorOutput = {
     topic_id: string | null;
     new_state: TopicNodeRow['state'] | null;
   };
+  proposals?: unknown;
 };
 
 export async function runCuratorForSession(sessionId: string): Promise<void> {
@@ -169,7 +198,57 @@ export async function runCuratorForSession(sessionId: string): Promise<void> {
       .where(and(eq(topicNodes.studentId, s.studentId), eq(topicNodes.id, sug.topic_id)));
   }
 
+  // 5) proposte di task per il tutor (pending). Additivo: se per qualche motivo
+  // la sessione ha già proposte associate (es. seed), non duplichiamo.
+  const drafts = validateProposals(parsed.proposals);
+  if (drafts.length > 0) {
+    const already = await db
+      .select({ id: activityProposals.id })
+      .from(activityProposals)
+      .where(eq(activityProposals.sourceSessionId, s.id))
+      .limit(1);
+    if (already.length === 0) {
+      const now = new Date();
+      await db.insert(activityProposals).values(
+        drafts.map((d) => ({
+          id: mkId.proposal(),
+          studentId: s.studentId,
+          sourceSessionId: s.id,
+          status: 'pending' as const,
+          kind: d.kind,
+          subject: d.subject,
+          title: d.title,
+          kicker: d.kicker ?? null,
+          estimatedMinutes: d.estimated_minutes ?? null,
+          priority: d.priority ?? 100,
+          rationale: d.rationale ?? null,
+          createdAt: now,
+        })),
+      );
+      console.log(`[curator] ${drafts.length} proposte inserite per sessione ${s.id}`);
+    } else {
+      console.log(`[curator] proposte già esistenti per ${s.id}, skip insert`);
+    }
+  }
+
   console.log(`[curator] sessione ${s.id} processata`);
+}
+
+// Valida le proposte generate dal modello. Scarta silenziosamente quelle
+// malformate (kind fuori enum, titolo vuoto, ecc.) con un warn: un output
+// parziale è meglio di un fallimento totale dell'intera elaborazione curator.
+function validateProposals(raw: unknown): ProposalDraft[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ProposalDraft[] = [];
+  for (const item of raw.slice(0, MAX_PROPOSALS_PER_SESSION)) {
+    const res = proposalDraftSchema.safeParse(item);
+    if (res.success) {
+      out.push(res.data);
+    } else {
+      console.warn('[curator] proposta scartata (schema invalido)', res.error.issues);
+    }
+  }
+  return out;
 }
 
 function capitalize(s: string): string {

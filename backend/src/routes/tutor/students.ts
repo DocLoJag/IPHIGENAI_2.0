@@ -5,7 +5,7 @@
  * - GET  /tutor/students/:id/notebook            storico note curator
  */
 import type { FastifyInstance } from 'fastify';
-import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db/postgres.js';
 import {
@@ -22,6 +22,10 @@ import { assertTutorOwnsStudent } from './guards.js';
 import { serializeCuratorNote, serializeTutorActivity } from './serializers.js';
 
 const notebookQuery = z.object({
+  limit: z.coerce.number().int().positive().max(100).default(20),
+});
+
+const dismissedQuery = z.object({
   limit: z.coerce.number().int().positive().max(100).default(20),
 });
 
@@ -138,6 +142,40 @@ export default async function tutorStudentsRoutes(app: FastifyInstance) {
         upcoming_activities: upcomingActivities.map(serializeTutorActivity),
         recent_completions: recentCompletions.map(serializeCompletion),
         last_curator_note: lastCuratorNote ? serializeCuratorNote(lastCuratorNote) : null,
+      };
+    },
+  );
+
+  // GET /tutor/students/:id/dismissed-activities — lista activity scartate per ripristino.
+  // Ordinata per dismissedAt DESC (le più recenti in cima). Non incluso nel bundle
+  // overview perché è una vista "di servizio": il tutor lo apre solo quando vuole
+  // ripescare qualcosa che aveva scartato.
+  app.get<{ Params: { id: string } }>(
+    '/tutor/students/:id/dismissed-activities',
+    guard,
+    async (req) => {
+      const tutorId = req.principal!.sub;
+      const studentId = req.params.id;
+      await assertTutorOwnsStudent(tutorId, studentId);
+
+      const { limit } = dismissedQuery.parse(req.query ?? {});
+
+      const items = await db
+        .select()
+        .from(activities)
+        .where(
+          and(
+            eq(activities.studentId, studentId),
+            isNotNull(activities.dismissedAt),
+            isNull(activities.completedAt),
+          ),
+        )
+        .orderBy(desc(activities.dismissedAt))
+        .limit(limit);
+
+      return {
+        items: items.map(serializeTutorActivity),
+        total: items.length,
       };
     },
   );

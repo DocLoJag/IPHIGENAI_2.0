@@ -168,6 +168,12 @@ function TutorStudentPage({ studentId, user, showToast }) {
             showToast={showToast}
           />
 
+          <DismissedBlock
+            studentId={studentId}
+            onRestored={refreshOverview}
+            showToast={showToast}
+          />
+
           <SessionsBlock items={recent_sessions} />
 
           <CompletionsBlock items={recent_completions} />
@@ -498,6 +504,101 @@ function UpcomingRow({ a, onChange, showToast }) {
           style={{ fontSize: 12, padding: '4px 10px' }}
         >
           {busy ? '…' : 'scarta'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Dismissed activities (lazy) ───────────────────────── */
+// Sezione di servizio: il tutor la apre solo quando vuole ripescare un task
+// che aveva scartato. Niente fetch automatico — partiamo chiusi.
+function DismissedBlock({ studentId, onRestored, showToast }) {
+  const [open, setOpen] = React.useState(false);
+  const { data, loading, error, refresh } = useApi(
+    `/tutor/students/${studentId}/dismissed-activities?limit=20`,
+    { enabled: open },
+  );
+
+  const items = data?.items ?? [];
+
+  return (
+    <div style={{ marginBottom: 36 }}>
+      <div className="row row--between" style={{ marginBottom: 14, borderBottom: '1.5px solid var(--ink)', paddingBottom: 8 }}>
+        <h2 style={{ fontSize: 22 }}>Scartati</h2>
+        <button
+          className="btn btn--ghost"
+          onClick={() => setOpen((v) => !v)}
+          style={{ fontSize: 12, padding: '4px 10px' }}
+        >
+          {open ? 'nascondi' : 'mostra'}
+        </button>
+      </div>
+      {!open ? null : loading ? (
+        <Skeleton h={80} />
+      ) : error ? (
+        <div className="card card--soft" style={{ padding: 14, color: 'var(--danger)' }}>
+          Errore nel caricamento scartati: {error.message}
+        </div>
+      ) : items.length === 0 ? (
+        <div className="soft" style={{ fontFamily: 'var(--serif)', fontStyle: 'italic', padding: '8px 0' }}>
+          Nessun task scartato.
+        </div>
+      ) : (
+        items.map((a) => (
+          <DismissedRow
+            key={a.id}
+            a={a}
+            onRestored={() => { refresh(); onRestored(); }}
+            showToast={showToast}
+          />
+        ))
+      )}
+    </div>
+  );
+}
+
+function DismissedRow({ a, onRestored, showToast }) {
+  const [busy, setBusy] = React.useState(false);
+
+  const restore = async () => {
+    setBusy(true);
+    try {
+      // backend supporta da §8.3-WRITE st2: PATCH con dismissed_at:null azzera la dismissione.
+      await api.patch(`/tutor/activities/${a.id}`, { dismissed_at: null });
+      showToast('Task ripristinato.');
+      onRestored();
+    } catch (e) {
+      showToast(`Errore: ${e.message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="article-row" style={{ opacity: 0.85 }}>
+      <div className="article-row__thumb placeholder" style={{ filter: 'grayscale(40%)' }}>
+        {a.subject.slice(0, 4)}
+      </div>
+      <div className="article-row__body">
+        <div className="article-row__kicker">
+          scartato {formatWhen(a.dismissed_at)}{a.kicker ? ` · ${a.kicker}` : ''}
+        </div>
+        <div className="article-row__title" style={{ textDecoration: 'line-through', textDecorationThickness: 1 }}>
+          {a.title}
+        </div>
+        <div className="article-row__meta" style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
+          <span className="pill">{a.kind.replace('-', ' ')}{a.estimated_minutes ? ` · ${a.estimated_minutes}′` : ''}</span>
+        </div>
+      </div>
+      <div style={{ alignSelf: 'center' }}>
+        <button
+          className="btn btn--ghost"
+          disabled={busy}
+          onClick={restore}
+          style={{ fontSize: 12, padding: '4px 10px' }}
+        >
+          {busy ? '…' : 'ripristina'}
         </button>
       </div>
     </div>

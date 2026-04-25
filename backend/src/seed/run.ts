@@ -24,6 +24,7 @@ import {
   users,
 } from '../db/schema.js';
 import { hashPassword } from '../auth/passwords.js';
+import { invalidateAttachmentCache } from '../services/attachment-blocks.js';
 
 async function wipe(): Promise<void> {
   // TRUNCATE con CASCADE per pulire tutto in un colpo
@@ -54,6 +55,10 @@ async function wipe(): Promise<void> {
       // collezione non esistente → ignora
     }
   }
+  // Cache base64 process-local in services/attachment-blocks.ts: dopo un
+  // reset il riferimento a un gridfsId precedente non punta più a niente,
+  // quindi va invalidata l'intera mappa.
+  invalidateAttachmentCache();
 }
 
 /**

@@ -316,12 +316,23 @@ function ChatScreen({
       <div className="chat__body" ref={bodyRef}>
         {messages.map((m) => {
           const mine = m.from === meId || m.from === 'student';
+          // §8.6-st3: gli allegati passano in m.attachments (array di
+          // SerializedAttachment dal backend). Renderiamo una griglia di
+          // thumbnail/chip sopra il testo.
+          const atts = Array.isArray(m.attachments) ? m.attachments : [];
           return (
             <div key={m.id} className={`msg ${mine ? 'msg--mine' : 'msg--them'}`}>
               <div className="msg__head">
                 {mine ? 'tu' : (m.from_name || 'il tutor')} · {formatTime(m.at)}
               </div>
-              <div className="msg__body">{m.text}</div>
+              {atts.length > 0 && (
+                <div className="msg__attachments" style={{
+                  display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: m.text ? 6 : 0,
+                }}>
+                  {atts.map((a) => <MessageAttachment key={a.id} att={a} />)}
+                </div>
+              )}
+              {m.text && <div className="msg__body">{m.text}</div>}
             </div>
           );
         })}
@@ -391,6 +402,51 @@ function ChatScreen({
   );
 }
 
+// Allegato dentro una bolla messaggio: thumbnail 80x80 cliccabile per immagini,
+// chip con nome+badge PDF per PDF. crossOrigin='use-credentials' è necessario
+// perché il backend serve il binario su un origin diverso e richiede il cookie
+// httpOnly di sessione (vedi gotcha §10).
+function MessageAttachment({ att }) {
+  if (!att) return null;
+  const isImage = att.mime?.startsWith('image/');
+  const src = api.attachmentSrc(att);
+  if (isImage) {
+    return (
+      <a href={src} target="_blank" rel="noopener" title={att.filename}>
+        <img
+          src={src}
+          alt={att.filename}
+          crossOrigin="use-credentials"
+          style={{
+            width: 88, height: 88, objectFit: 'cover', borderRadius: 4,
+            border: '1px solid var(--ink-faint)', display: 'block',
+          }}
+        />
+      </a>
+    );
+  }
+  return (
+    <a
+      href={src}
+      target="_blank"
+      rel="noopener"
+      title={att.filename}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6,
+        padding: '4px 10px', background: 'var(--paper-cream)',
+        border: '1px solid var(--ink-faint)', borderRadius: 4,
+        fontSize: 12, fontFamily: 'var(--sans)', color: 'var(--ink)',
+        textDecoration: 'none', maxWidth: 240,
+      }}
+    >
+      <span style={{ fontWeight: 600 }}>PDF</span>
+      <span style={{
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+      }}>{att.filename}</span>
+    </a>
+  );
+}
+
 // Chip di anteprima per un allegato nel composer.
 // Per immagini: thumbnail 32x32. Per PDF: icona testuale.
 function AttachmentChipPreview({ att }) {
@@ -450,6 +506,6 @@ function Skeleton({ w = '100%', h = 16, style }) {
 
 Object.assign(window, {
   TopBar, TutorTopBar, Greeting, Constellation, ArtifactThumb,
-  AIBubble, ChatScreen, AttachmentChipPreview,
+  AIBubble, ChatScreen, AttachmentChipPreview, MessageAttachment,
   formatTime, formatWhen, Toast, Skeleton,
 });

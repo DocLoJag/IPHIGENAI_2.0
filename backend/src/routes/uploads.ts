@@ -36,6 +36,7 @@ import { attachmentsGridFS } from '../db/mongo.js';
 import { attachments, students, type AttachmentRow } from '../db/schema.js';
 import { badRequest, forbidden, notFound, unauthorized } from '../lib/errors.js';
 import { id as genId } from '../lib/ids.js';
+import { serializeAttachment } from './serializers.js';
 
 const ALLOWED_MIME = new Set([
   'image/png',
@@ -50,32 +51,6 @@ const uploadsListQuery = z.object({
   limit: z.coerce.number().int().positive().max(100).default(20),
   student_id: z.string().min(1).optional(),
 });
-
-type SerializedAttachment = {
-  id: string;
-  filename: string;
-  mime: string;
-  size_bytes: number;
-  owner_id: string;
-  student_id: string | null;
-  url: string;
-  created_at: string;
-  deleted_at: string | null;
-};
-
-function serializeAttachment(a: AttachmentRow): SerializedAttachment {
-  return {
-    id: a.id,
-    filename: a.filename,
-    mime: a.mime,
-    size_bytes: a.sizeBytes,
-    owner_id: a.ownerId,
-    student_id: a.studentId,
-    url: `/api/uploads/${a.id}`,
-    created_at: a.createdAt.toISOString(),
-    deleted_at: a.deletedAt ? a.deletedAt.toISOString() : null,
-  };
-}
 
 // Verifica che l'utente abbia diritto di leggere/cancellare l'allegato.
 // Throwa AppError (401/403/404) — il chiamante non deve gestire i codici a mano.

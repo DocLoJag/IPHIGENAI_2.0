@@ -1,8 +1,10 @@
 import type { FastifyInstance } from 'fastify';
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, lt } from 'drizzle-orm';
+import { ObjectId } from 'mongodb';
 import { z } from 'zod';
 import { db } from '../db/postgres.js';
-import { students, users } from '../db/schema.js';
+import { attachmentsGridFS } from '../db/mongo.js';
+import { attachments, students, users } from '../db/schema.js';
 import { hashPassword } from '../auth/passwords.js';
 import { conflict, notFound } from '../lib/errors.js';
 import { id as mkId } from '../lib/ids.js';
@@ -29,6 +31,12 @@ const updateBody = z.object({
   school: z.string().optional(),
   tutor_id: z.string().optional(),
 });
+
+const cleanupBody = z
+  .object({
+    days: z.number().int().min(7).max(3650).optional(),
+  })
+  .strict();
 
 function serializeUser(u: typeof users.$inferSelect, s?: typeof students.$inferSelect) {
   return {
@@ -164,5 +172,76 @@ export default async function adminRoutes(app: FastifyInstance) {
     req.log.warn({ actor: req.principal?.sub }, 'RESET demo data richiesto');
     await seedDemo();
     return { ok: true, reset_at: new Date().toISOString() };
+  });
+
+  // POST /admin/cleanup-attachments
+  // Hard-delete distruttivo per gli allegati soft-deleted da almeno N giorni:
+  // rimuove sia il blob GridFS sia la riga `attachments`. Pensato per essere
+  // chiamato manualmente dall'admin (UI in AdminHome) — non c'è un cron
+  // automatico per scelta, perché il pilota ha pochi file e preferiamo
+  // chirurgia umana a un job nascosto.
+  //
+  // Le righe della chat AI (`ai_messages.attachment_ids[]`) possono ancora
+  // riferirsi a id ormai cancellati: la replay history filtra silenziosamente
+  // i missing/deleted (`loadAttachmentsByIds`), quindi il thread sopravvive
+  // senza throw — semplicemente non rivedi più quel blocco.
+  //
+  // Threshold default 30d; floor a 7d per evitare hard-delete su soft-delete
+  // recenti (l'admin che si pente entro la prima settimana ha tempo).
+  app.post('/admin/cleanup-attachments', guard, async (req) => {
+    const body = cleanupBody.parse(req.body ?? {});
+    const days = body.days ?? 30;
+    const threshold = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    const candidates = await db
+      .select()
+      .from(attachments)
+      .where(
+        and(
+          isNotNull(attachments.deletedAt),
+          lt(attachments.deletedAt, threshold),
+        ),
+      );
+
+    let blobsDeleted = 0;
+    let blobsFailed = 0;
+    for (const a of candidates) {
+      try {
+        await attachmentsGridFS().delete(new ObjectId(a.gridfsId));
+        blobsDeleted++;
+      } catch (err) {
+        // Best-effort: se il blob non c'è più (ObjectId stale, race con un
+        // run precedente parzialmente completato) continuiamo. La riga
+        // Postgres viene comunque cancellata: chi vincola? Solo `ai_messages`
+        // (Mongo, dropping silently) e niente FK in Postgres su `attachments`.
+        blobsFailed++;
+        req.log.warn({ id: a.id, gridfsId: a.gridfsId, err: String(err) }, 'GridFS delete failed during cleanup');
+      }
+    }
+
+    let rowsDeleted = 0;
+    if (candidates.length > 0) {
+      const ids = candidates.map((a) => a.id);
+      const deleted = await db
+        .delete(attachments)
+        .where(inArray(attachments.id, ids))
+        .returning({ id: attachments.id });
+      rowsDeleted = deleted.length;
+    }
+
+    req.log.warn(
+      { actor: req.principal?.sub, days, candidates: candidates.length, blobsDeleted, blobsFailed, rowsDeleted },
+      'Attachment cleanup eseguito',
+    );
+
+    return {
+      ok: true,
+      days,
+      threshold: threshold.toISOString(),
+      candidates: candidates.length,
+      blobs_deleted: blobsDeleted,
+      blobs_failed: blobsFailed,
+      rows_deleted: rowsDeleted,
+    };
   });
 }

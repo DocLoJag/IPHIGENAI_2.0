@@ -13,6 +13,8 @@ function AdminHomePage({ user, showToast }) {
   const [resetting, setResetting] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [cleaning, setCleaning] = useState(false);
+  const [confirmClean, setConfirmClean] = useState(false);
 
   const reload = async () => {
     try {
@@ -55,6 +57,28 @@ function AdminHomePage({ user, showToast }) {
     await reload();
   };
 
+  const onCleanupClick = async () => {
+    if (!confirmClean) {
+      setConfirmClean(true);
+      setTimeout(() => setConfirmClean(false), 4000);
+      return;
+    }
+    setCleaning(true);
+    try {
+      const res = await api.post('/admin/cleanup-attachments', {});
+      showToast(
+        res.candidates === 0
+          ? 'Nessun allegato da pulire (soft-deleted da almeno 30 giorni).'
+          : `Pulizia: ${res.rows_deleted} allegati cancellati (${res.blobs_deleted} blob, ${res.blobs_failed} falliti).`,
+      );
+    } catch (e) {
+      showToast(`Cleanup fallito: ${e.message || 'errore'}`);
+    } finally {
+      setCleaning(false);
+      setConfirmClean(false);
+    }
+  };
+
   const byRole = (role) => (users || []).filter((u) => u.role === role);
   const tutors = byRole('tutor');
 
@@ -91,6 +115,34 @@ function AdminHomePage({ user, showToast }) {
             }}
           >
             {resetting ? 'reset in corso…' : confirmReset ? 'sicuro? clicca ancora' : 'reset al seed'}
+          </button>
+        </div>
+      </div>
+
+      {/* Cleanup allegati soft-deleted */}
+      <div className="card card--soft" style={{ marginBottom: 24 }}>
+        <div className="row row--between" style={{ alignItems: 'flex-start', gap: 16 }}>
+          <div style={{ maxWidth: 540 }}>
+            <h2 style={{ fontSize: 20, marginBottom: 6 }}>Pulizia allegati</h2>
+            <p className="soft" style={{ fontSize: 14, lineHeight: 1.5 }}>
+              Elimina <strong>fisicamente</strong> gli allegati cancellati da almeno
+              30 giorni: rimuove sia il blob da Mongo GridFS sia la riga su Postgres.
+              Gli allegati cancellati di recente restano per consentire un eventuale
+              ripensamento. Pensato per essere lanciato manualmente quando lo storage
+              cresce.
+            </p>
+          </div>
+          <button
+            className="btn"
+            onClick={onCleanupClick}
+            disabled={cleaning}
+            style={{
+              minWidth: 180,
+              background: confirmClean ? 'var(--accent)' : undefined,
+              color: confirmClean ? 'white' : undefined,
+            }}
+          >
+            {cleaning ? 'pulizia in corso…' : confirmClean ? 'sicuro? clicca ancora' : 'pulisci allegati'}
           </button>
         </div>
       </div>

@@ -174,6 +174,12 @@ function TutorStudentPage({ studentId, user, showToast }) {
             showToast={showToast}
           />
 
+          <window.AttachmentsBlock
+            studentId={studentId}
+            currentUserId={user.id}
+            showToast={showToast}
+          />
+
           <SessionsBlock items={recent_sessions} />
 
           <CompletionsBlock items={recent_completions} />

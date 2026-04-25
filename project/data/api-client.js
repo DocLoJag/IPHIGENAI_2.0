@@ -86,6 +86,49 @@
     del:    (p, opts)       => request('DELETE', p, opts),
   };
 
+  // ─── Upload multipart ──────────────────────────────────────────
+  // Caricamento file via FormData. NON settiamo Content-Type a mano:
+  // il browser lo deriva (multipart/form-data; boundary=...) automaticamente.
+  // CONVENZIONE backend (uploads.ts): `student_id` deve precedere il file
+  // nel multipart (ordine FormData rispettato dal browser).
+  api.uploadFile = async function uploadFile(file, { studentId } = {}) {
+    const url = API_BASE + '/uploads';
+    log('req', 'POST', url, { filename: file.name, size: file.size, studentId: studentId || null });
+
+    const fd = new FormData();
+    if (studentId) fd.append('student_id', studentId);
+    fd.append('file', file, file.name);
+
+    let res;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        credentials: 'include',
+        body: fd,
+      });
+    } catch (netErr) {
+      const err = new Error('Errore di rete durante il caricamento.');
+      err.status = 0;
+      err.cause = netErr;
+      log('err', 'POST', url, netErr.message);
+      throw err;
+    }
+
+    let data = null;
+    try { data = await res.json(); } catch { /* no body */ }
+
+    if (!res.ok) {
+      const err = new Error((data && data.message) || `Errore ${res.status}`);
+      err.status = res.status;
+      if (data && data.code) err.code = data.code;
+      log('err', 'POST', url, err.message);
+      throw err;
+    }
+
+    log('res', 'POST', url, data);
+    return data;
+  };
+
   // ─── SSE streaming POST ─────────────────────────────
   // Apre una richiesta POST verso un endpoint che risponde con
   // text/event-stream e invoca i callback `on[event](data)` per ogni

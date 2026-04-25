@@ -28,7 +28,7 @@
  * `deleted_at < now() - 30d` ed eliminare il GridFS file corrispondente.
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, isNull, or } from 'drizzle-orm';
 import { ObjectId } from 'mongodb';
 import { z } from 'zod';
 import { db } from '../db/postgres.js';
@@ -388,7 +388,9 @@ export default async function uploadsRoutes(app: FastifyInstance) {
       const { limit, student_id } = uploadsListQuery.parse(req.query ?? {});
 
       // Filtri:
-      //   - student: solo i propri (ownerId = self)
+      //   - student: i propri (ownerId = self) + quelli a lui destinati (studentId = self).
+      //     Coerente con assertCanAccessAttachment: lo studente vede anche i file
+      //     che il tutor ha caricato "per lui".
       //   - tutor: solo quelli del proprio studente (filtro `student_id` obbligatorio)
       //   - admin: tutto, eventualmente filtrato per studente
       // Tutti escludono i soft-deleted via `isNull(deletedAt)`.
@@ -398,7 +400,12 @@ export default async function uploadsRoutes(app: FastifyInstance) {
         rows = await db
           .select()
           .from(attachments)
-          .where(and(eq(attachments.ownerId, me.sub), notDeleted))
+          .where(
+            and(
+              or(eq(attachments.ownerId, me.sub), eq(attachments.studentId, me.sub)),
+              notDeleted,
+            ),
+          )
           .orderBy(desc(attachments.createdAt))
           .limit(limit);
       } else if (me.role === 'tutor') {

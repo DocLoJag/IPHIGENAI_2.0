@@ -9,6 +9,7 @@ import { hashPassword } from '../auth/passwords.js';
 import { conflict, notFound } from '../lib/errors.js';
 import { id as mkId } from '../lib/ids.js';
 import { seedDemo } from '../seed/run.js';
+import { invalidateAttachmentCache } from '../services/attachment-blocks.js';
 
 const createBody = z.object({
   role: z.enum(['student', 'tutor', 'admin']),
@@ -227,6 +228,11 @@ export default async function adminRoutes(app: FastifyInstance) {
         .where(inArray(attachments.id, ids))
         .returning({ id: attachments.id });
       rowsDeleted = deleted.length;
+      // Invalida la cache base64 dei blob appena cancellati, così la
+      // chat AI non rischia di servire da cache un binario che non c'è
+      // più (la replay filtra già i missing/deleted, ma essere pulisci
+      // non costa nulla).
+      invalidateAttachmentCache(candidates.map((a) => a.gridfsId));
     }
 
     req.log.warn(

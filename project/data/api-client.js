@@ -87,10 +87,16 @@
   };
 
   // ─── Multipart upload ───────────────────────────────────
-  // POST con FormData. NON impostiamo `Content-Type`: il browser deve
-  // generare il boundary multipart automaticamente. Usato da §8.6 (uploads).
-  // Il backend si aspetta i form fields PRIMA del file part nel multipart
-  // (FormData del browser preserva l'ordine di append → vedi gotcha §10).
+  // POST con FormData. NON impostiamo `Content-Type`: il browser genera il
+  // boundary multipart da solo. Backend `routes/uploads.ts` si aspetta i
+  // form fields PRIMA del file part (FormData del browser preserva l'ordine
+  // di append → vedi gotcha §10).
+  //
+  // Esposizione doppia per ergonomia:
+  //   - api.upload(path, formData)        → generico, usato da Composer chat AI
+  //                                         e dalla sezione Allegati nella scheda tutor.
+  //   - api.uploadFile(file, {studentId}) → wrapper sul caso comune (un solo
+  //                                         file, target /uploads).
   api.upload = async function uploadRequest(path, formData) {
     const url = API_BASE + path;
     log('req', 'POST', url, '(multipart)');
@@ -119,6 +125,13 @@
     }
     log('res', 'POST', url, data);
     return data;
+  };
+
+  api.uploadFile = function uploadFile(file, { studentId } = {}) {
+    const fd = new FormData();
+    if (studentId) fd.append('student_id', studentId);
+    fd.append('file', file, file.name);
+    return api.upload('/uploads', fd);
   };
 
   // ─── SSE streaming POST ─────────────────────────────

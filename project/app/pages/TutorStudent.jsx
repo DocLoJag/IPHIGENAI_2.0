@@ -174,11 +174,11 @@ function TutorStudentPage({ studentId, user, showToast }) {
             showToast={showToast}
           />
 
+          <AttachmentsBlock studentId={studentId} showToast={showToast} />
+
           <SessionsBlock items={recent_sessions} />
 
           <CompletionsBlock items={recent_completions} />
-
-          <AttachmentsBlock studentId={studentId} showToast={showToast} />
         </div>
 
         <aside className="stack" style={{ '--gap': '20px', position: 'sticky', top: 80 }}>

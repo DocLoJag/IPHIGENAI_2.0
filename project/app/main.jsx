@@ -158,6 +158,9 @@ function App() {
   } else if (path === '/archive') {
     page = <ArchivePage />;
     topCurrent = '/archive';
+  } else if (path === '/files') {
+    page = <FilesPage user={user} showToast={showToast} />;
+    topCurrent = '/files';
   } else if (path === '/login') {
     navigate('/home');
     return null;

@@ -11,6 +11,7 @@ function TopBar({ current, user, onLogout }) {
     { to: '/home', label: 'Oggi' },
     { to: '/archive', label: 'Già alle spalle' },
     { to: '/toolkit', label: 'Cassetta degli attrezzi' },
+    { to: '/files', label: 'I miei file' },
     { to: '/chiara', label: 'Chiara' },
   ];
   return (

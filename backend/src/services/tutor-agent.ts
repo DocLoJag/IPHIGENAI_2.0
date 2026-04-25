@@ -1,4 +1,3 @@
-import type { MessageStream } from '@anthropic-ai/sdk/lib/MessageStream';
 import { anthropic, models } from './anthropic.js';
 import { tutorSystemPrompt } from './system-prompts.js';
 import { collections, type AiMessageDoc } from '../db/mongo.js';
@@ -152,63 +151,3 @@ export async function runTutorTurn(input: TutorTurnInput): Promise<{
   };
 }
 
-/**
- * Versione streaming: salva subito il messaggio studente, apre lo stream Anthropic
- * e ritorna un controller. Chi chiama deve agganciarsi a `stream.on('text', ...)`
- * per i delta e poi invocare `finalize()` per persistere la risposta completa.
- *
- * Se il client si stacca, è dovere del chiamante invocare `stream.controller.abort()`.
- */
-export async function startTutorStream(input: TutorTurnInput): Promise<{
-  studentMsg: SerializedMessage;
-  aiMsgId: string;
-  aiSeq: number;
-  stream: MessageStream;
-  finalize: () => Promise<SerializedMessage>;
-}> {
-  const prep = await preparePrompt(input);
-
-  const stream = anthropic().messages.stream({
-    model: models.tutor,
-    max_tokens: 1024,
-    system: prep.system,
-    messages: prep.messages,
-  });
-
-  const studentMsg: SerializedMessage = {
-    id: `${input.threadId}-${prep.studentDoc.seq}`,
-    from: 'student',
-    at: prep.studentDoc.at.toISOString(),
-    text: prep.studentDoc.text,
-  };
-
-  const aiMsgId = `${input.threadId}-${prep.aiSeq}`;
-
-  const finalize = async (): Promise<SerializedMessage> => {
-    const finalMessage = await stream.finalMessage();
-    const replyText =
-      finalMessage.content
-        .map((b) => (b.type === 'text' ? b.text : ''))
-        .join('\n')
-        .trim() || '…';
-    const aiDoc: AiMessageDoc = {
-      thread_id: input.threadId,
-      seq: prep.aiSeq,
-      from: 'ai',
-      at: new Date(),
-      text: replyText,
-      model: finalMessage.model,
-      tokens_in: finalMessage.usage?.input_tokens,
-      tokens_out: finalMessage.usage?.output_tokens,
-    };
-    await collections.aiMessages().insertOne(aiDoc);
-    return {
-      id: aiMsgId,
-      from: 'ai',
-      at: aiDoc.at.toISOString(),
-      text: aiDoc.text,
-    };
-  };
-
-  return { studentMsg, aiMsgId, aiSeq: prep.aiSeq, stream, finalize };
-}

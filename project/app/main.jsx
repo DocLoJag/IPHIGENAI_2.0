@@ -24,7 +24,8 @@ function App() {
 
   const onLoggedIn = (u) => {
     setUser(u);
-    navigate(u.role === 'tutor' ? '/tutor' : '/home');
+    const dest = u.role === 'tutor' ? '/tutor' : u.role === 'admin' ? '/admin' : '/home';
+    navigate(dest);
   };
   const onLogout = async () => {
     await api.post('/auth/logout', {});
@@ -89,7 +90,38 @@ function App() {
     );
   }
 
-  // Studente / admin → routing originale
+  // Admin → pannello dedicato. Tutto ciò che non è /admin* o /login viene
+  // riportato a /admin (l'admin non usa la home studente: prima ricadeva lì
+  // e l'API rispondeva 403 "endpoint riservato agli studenti").
+  if (user.role === 'admin') {
+    const path = route.path;
+    let page;
+
+    if (path === '/' || path === '/home' || path === '/admin') {
+      page = <AdminHomePage user={user} showToast={showToast} />;
+    } else if (path === '/login') {
+      navigate('/admin');
+      return null;
+    } else {
+      page = (
+        <div className="page">
+          <h1>Pagina non trovata</h1>
+          <p className="soft">Il percorso <code>{path}</code> non esiste nel pannello admin.</p>
+          <Link to="/admin" className="btn btn--ghost">← torna al pannello</Link>
+        </div>
+      );
+    }
+
+    return (
+      <>
+        <AdminTopBar user={user} onLogout={onLogout} />
+        {page}
+        <Toast message={toast} onDone={() => setToast(null)} />
+      </>
+    );
+  }
+
+  // Studente → routing originale
   const path = route.path;
   let page;
   let topCurrent = '/home';

@@ -45,6 +45,33 @@ function TopBar({ current, user, onLogout }) {
   );
 }
 
+function AdminTopBar({ user, onLogout }) {
+  return (
+    <div className="topbar">
+      <div className="topbar__left">
+        <Link to="/admin" className="topbar__logo">
+          Iphigen<span className="amp">AI</span>
+        </Link>
+        <span className="topbar__date">pannello admin</span>
+      </div>
+      <nav className="topbar__nav">
+        <Link to="/admin" className="on">Utenti</Link>
+      </nav>
+      <div className="topbar__user">
+        {user ? (
+          <>
+            <span className="muted small">{user.name}</span>
+            <span className="avatar avatar--terra">{user.avatar_initial}</span>
+            <button className="btn btn--ghost" style={{ padding: '4px 10px', fontSize: 12 }} onClick={onLogout}>
+              esci
+            </button>
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function TutorTopBar({ current, user, onLogout }) {
   const links = [
     { to: '/tutor', label: 'I miei studenti' },

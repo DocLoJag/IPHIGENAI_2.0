@@ -28,9 +28,14 @@ export function curatorQueue(): Queue<CuratorJobData> {
 }
 
 export async function enqueueCuratorJob(data: CuratorJobData): Promise<void> {
-  // exactly-once per sessione: jobId deterministico su sessionId. Se già in coda, BullMQ lo scarta.
+  // jobId con timestamp per evitare collisioni. L'idempotency reale è applicativa
+  // (`runCuratorForSession` skippa se la nota Mongo per quella sessione esiste già):
+  // un jobId puramente deterministico bloccherebbe i re-enqueue dopo reset-demo,
+  // perché BullMQ trattiene jobId completed nel set per `removeOnComplete.age`.
   // BullMQ 5 non accetta ':' nei custom jobId — usiamo '-' come separatore.
-  await curatorQueue().add('run-curator', data, { jobId: `curator-${data.sessionId}` });
+  await curatorQueue().add('run-curator', data, {
+    jobId: `curator-${data.sessionId}-${Date.now()}`,
+  });
 
   await db.insert(jobLog).values({
     jobName: 'curator:run-curator',

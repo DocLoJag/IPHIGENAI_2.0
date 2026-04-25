@@ -1,13 +1,12 @@
-/* I miei file — upload + lista per studente o tutor.
- *
- * Componente riusato:
- *   - <FilesPage user={user} showToast={...} />          (lato studente: /files)
- *   - <AttachmentsBlock studentId="..." showToast={...}/> (lato tutor: dentro la scheda)
+/* I miei file — pagina /files lato studente.
  *
  * Backend: /api/uploads (vedi backend/src/routes/uploads.ts).
  * Convenzione cookie: il backend è cross-origin in dev (Railway), quindi
  * gli `<img>` per le anteprime usano `crossOrigin="use-credentials"` per
  * inviare il cookie httpOnly. CORS lato backend è già allowlist+credentials.
+ *
+ * La sezione "Allegati" lato tutor è invece inline in TutorStudent.jsx
+ * (componente `AttachmentsBlock` locale, atterrato in main via PR #5).
  */
 function fmtBytes(n) {
   if (typeof n !== 'number' || !isFinite(n)) return '—';
@@ -224,49 +223,4 @@ function FilesPage({ user, showToast }) {
   );
 }
 
-/* ─── Block lato tutor (dentro scheda studente) ──────────────── */
-function AttachmentsBlock({ studentId, currentUserId, showToast }) {
-  const { data, loading, error, refresh } = useApi(`/uploads?student_id=${encodeURIComponent(studentId)}&limit=50`);
-  const items = data?.items ?? [];
-
-  return (
-    <div style={{ marginBottom: 36 }}>
-      <div className="row row--between" style={{ marginBottom: 14, borderBottom: '1.5px solid var(--ink)', paddingBottom: 8 }}>
-        <h2 style={{ fontSize: 22 }}>Allegati</h2>
-        <span className="hand small muted">{items.length}</span>
-      </div>
-
-      <UploadForm
-        studentId={studentId}
-        onUploaded={() => refresh()}
-        showToast={showToast}
-        label="carica per lo studente"
-      />
-
-      {loading ? (
-        <Skeleton h={120} />
-      ) : error ? (
-        <div className="card card--soft" style={{ padding: 14, color: 'var(--danger)' }}>
-          Errore nel caricamento allegati: {error.message}
-        </div>
-      ) : items.length === 0 ? (
-        <div className="soft" style={{ fontFamily: 'var(--serif)', fontStyle: 'italic', padding: '8px 0' }}>
-          Nessun allegato per questo studente.
-        </div>
-      ) : (
-        items.map((att) => (
-          <AttachmentRow
-            key={att.id}
-            att={att}
-            canDelete={att.owner_id === currentUserId}
-            onDeleted={() => refresh()}
-            showToast={showToast}
-          />
-        ))
-      )}
-    </div>
-  );
-}
-
 window.FilesPage = FilesPage;
-window.AttachmentsBlock = AttachmentsBlock;

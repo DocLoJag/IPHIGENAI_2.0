@@ -218,8 +218,28 @@ function AIBubble() {
   );
 }
 
-function ChatScreen({ title, subtitle, avatarInitial, avatarClass, messages, onSend, onBack, meId }) {
+// Tipi MIME accettati dal backend (allineato a backend/routes/uploads.ts).
+const CHAT_ATTACH_MIMES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'application/pdf'];
+const CHAT_ATTACH_ACCEPT = CHAT_ATTACH_MIMES.join(',');
+const CHAT_ATTACH_MAX_BYTES = 10 * 1024 * 1024; // 10 MB
+
+function ChatScreen({
+  title,
+  subtitle,
+  avatarInitial,
+  avatarClass,
+  messages,
+  onSend,
+  onBack,
+  meId,
+  enableAttach = false,
+  studentIdForUpload = null,
+  showToast,
+}) {
   const [text, setText] = useState('');
+  const [attachment, setAttachment] = useState(null); // SerializedAttachment dal backend
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef(null);
   const bodyRef = useRef(null);
   // Auto-scroll: includere la lunghezza dell'ultima risposta come dep, così
   // anche durante lo streaming SSE (messages.length invariato, ma testo che cresce)
@@ -229,12 +249,58 @@ function ChatScreen({ title, subtitle, avatarInitial, avatarClass, messages, onS
     if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
   }, [messages.length, lastLen]);
 
+  const onPickFile = () => {
+    if (uploading || attachment) return;
+    fileInputRef.current?.click();
+  };
+
+  const onFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    // Reset del value così se l'utente seleziona lo stesso file dopo aver
+    // rimosso il precedente, l'evento change parte comunque.
+    e.target.value = '';
+    if (!file) return;
+    if (!CHAT_ATTACH_MIMES.includes(file.type)) {
+      showToast?.(`Tipo file non consentito (${file.type || 'sconosciuto'}).`);
+      return;
+    }
+    if (file.size > CHAT_ATTACH_MAX_BYTES) {
+      showToast?.('File troppo grande (max 10 MB).');
+      return;
+    }
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      // ORDINE IMPORTANTE: i form fields devono precedere il file part
+      // (vedi gotcha multipart in HANDOFF.md §10). FormData del browser
+      // preserva l'ordine di append.
+      if (studentIdForUpload) fd.append('student_id', studentIdForUpload);
+      fd.append('file', file);
+      const att = await api.upload('/uploads', fd);
+      setAttachment(att);
+    } catch (err) {
+      showToast?.(`Errore upload: ${err.message}`);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const removeAttachment = () => {
+    // Niente DELETE soft-delete: il file resta nel sistema, lo studente lo
+    // recupera comunque dalla lista uploads. Risparmiamo una chiamata.
+    setAttachment(null);
+  };
+
+  const canSubmit = !uploading && (text.trim() || attachment);
+
   const submit = async (e) => {
     e.preventDefault();
-    if (!text.trim()) return;
+    if (!canSubmit) return;
     const t = text.trim();
+    const att = attachment;
     setText('');
-    await onSend(t);
+    setAttachment(null);
+    await onSend(t, att);
   };
 
   return (
@@ -261,16 +327,91 @@ function ChatScreen({ title, subtitle, avatarInitial, avatarClass, messages, onS
         })}
       </div>
       <div className="chat__foot">
+        {enableAttach && (attachment || uploading) && (
+          <div className="composer-attach" style={{
+            display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
+            background: 'var(--paper-warm)', borderTop: '1px solid var(--ink-faint)',
+            fontFamily: 'var(--sans)', fontSize: 13,
+          }}>
+            {uploading ? (
+              <span className="hand small muted">caricamento allegato…</span>
+            ) : (
+              <>
+                <AttachmentChipPreview att={attachment} />
+                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  📎 {attachment.filename}
+                </span>
+                <button
+                  type="button"
+                  onClick={removeAttachment}
+                  className="btn btn--ghost"
+                  style={{ fontSize: 11, padding: '2px 8px' }}
+                  aria-label="rimuovi allegato"
+                >
+                  rimuovi
+                </button>
+              </>
+            )}
+          </div>
+        )}
         <form className="composer" onSubmit={submit}>
+          {enableAttach && (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept={CHAT_ATTACH_ACCEPT}
+                onChange={onFileChange}
+                style={{ display: 'none' }}
+              />
+              <button
+                type="button"
+                onClick={onPickFile}
+                disabled={uploading || !!attachment}
+                aria-label="allega un file"
+                title={attachment ? 'rimuovi il file corrente per allegarne un altro' : 'allega foto o PDF'}
+                style={{
+                  background: 'transparent', border: 'none', cursor: uploading || attachment ? 'not-allowed' : 'pointer',
+                  padding: '0 8px', fontSize: 18, opacity: uploading || attachment ? 0.4 : 1,
+                }}
+              >
+                📎
+              </button>
+            </>
+          )}
           <input
             placeholder="scrivi…"
             value={text}
             onChange={(e) => setText(e.target.value)}
           />
-          <button type="submit" aria-label="invia">↑</button>
+          <button type="submit" aria-label="invia" disabled={!canSubmit}>↑</button>
         </form>
       </div>
     </div>
+  );
+}
+
+// Chip di anteprima per un allegato nel composer.
+// Per immagini: thumbnail 32x32. Per PDF: icona testuale.
+function AttachmentChipPreview({ att }) {
+  if (!att) return null;
+  const isImage = att.mime?.startsWith('image/');
+  if (isImage) {
+    return (
+      <img
+        src={api.attachmentSrc(att)}
+        alt=""
+        crossOrigin="use-credentials"
+        style={{ width: 32, height: 32, objectFit: 'cover', borderRadius: 4, border: '1px solid var(--ink-faint)' }}
+      />
+    );
+  }
+  return (
+    <span style={{
+      width: 32, height: 32, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      background: 'var(--paper-cream)', border: '1px solid var(--ink-faint)', borderRadius: 4,
+      fontSize: 10, fontFamily: 'var(--sans)', fontWeight: 600,
+    }}>PDF</span>
   );
 }
 
@@ -309,6 +450,6 @@ function Skeleton({ w = '100%', h = 16, style }) {
 
 Object.assign(window, {
   TopBar, TutorTopBar, Greeting, Constellation, ArtifactThumb,
-  AIBubble, ChatScreen,
+  AIBubble, ChatScreen, AttachmentChipPreview,
   formatTime, formatWhen, Toast, Skeleton,
 });

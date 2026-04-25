@@ -86,37 +86,36 @@
     del:    (p, opts)       => request('DELETE', p, opts),
   };
 
-  // ─── Upload multipart ──────────────────────────────────────────
-  // Caricamento file via FormData. NON settiamo Content-Type a mano:
-  // il browser lo deriva (multipart/form-data; boundary=...) automaticamente.
-  // CONVENZIONE backend (uploads.ts): `student_id` deve precedere il file
-  // nel multipart (ordine FormData rispettato dal browser).
-  api.uploadFile = async function uploadFile(file, { studentId } = {}) {
-    const url = API_BASE + '/uploads';
-    log('req', 'POST', url, { filename: file.name, size: file.size, studentId: studentId || null });
-
-    const fd = new FormData();
-    if (studentId) fd.append('student_id', studentId);
-    fd.append('file', file, file.name);
-
+  // ─── Multipart upload ───────────────────────────────────
+  // POST con FormData. NON impostiamo `Content-Type`: il browser genera il
+  // boundary multipart da solo. Backend `routes/uploads.ts` si aspetta i
+  // form fields PRIMA del file part (FormData del browser preserva l'ordine
+  // di append → vedi gotcha §10).
+  //
+  // Esposizione doppia per ergonomia:
+  //   - api.upload(path, formData)        → generico, usato da Composer chat AI
+  //                                         e dalla sezione Allegati nella scheda tutor.
+  //   - api.uploadFile(file, {studentId}) → wrapper sul caso comune (un solo
+  //                                         file, target /uploads).
+  api.upload = async function uploadRequest(path, formData) {
+    const url = API_BASE + path;
+    log('req', 'POST', url, '(multipart)');
     let res;
     try {
       res = await fetch(url, {
         method: 'POST',
         credentials: 'include',
-        body: fd,
+        body: formData,
       });
     } catch (netErr) {
-      const err = new Error('Errore di rete durante il caricamento.');
+      const err = new Error('Errore di rete. Controlla la connessione.');
       err.status = 0;
       err.cause = netErr;
       log('err', 'POST', url, netErr.message);
       throw err;
     }
-
     let data = null;
-    try { data = await res.json(); } catch { /* no body */ }
-
+    try { data = await res.json(); } catch { /* tolleriamo */ }
     if (!res.ok) {
       const err = new Error((data && data.message) || `Errore ${res.status}`);
       err.status = res.status;
@@ -124,9 +123,15 @@
       log('err', 'POST', url, err.message);
       throw err;
     }
-
     log('res', 'POST', url, data);
     return data;
+  };
+
+  api.uploadFile = function uploadFile(file, { studentId } = {}) {
+    const fd = new FormData();
+    if (studentId) fd.append('student_id', studentId);
+    fd.append('file', file, file.name);
+    return api.upload('/uploads', fd);
   };
 
   // ─── SSE streaming POST ─────────────────────────────
@@ -262,7 +267,15 @@
     return { data, error, loading, refresh };
   }
 
+  // L'origin del backend (senza il prefisso /api). Serve per costruire URL
+  // assolute degli allegati (es. <img src>): il backend ritorna `url: "/api/uploads/:id"`
+  // come path relativo, ma il browser deve prependere l'origin per la fetch
+  // cross-origin con cookie.
+  const API_ORIGIN = API_BASE.replace(/\/api$/, '');
+  api.attachmentSrc = (att) => API_ORIGIN + (att?.url ?? '');
+
   window.api = api;
   window.useApi = useApi;
   window.__API_BASE__ = API_BASE; // utile per debug da console
+  window.__API_ORIGIN__ = API_ORIGIN;
 })();

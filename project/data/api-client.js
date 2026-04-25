@@ -86,6 +86,41 @@
     del:    (p, opts)       => request('DELETE', p, opts),
   };
 
+  // ─── Multipart upload ───────────────────────────────────
+  // POST con FormData. NON impostiamo `Content-Type`: il browser deve
+  // generare il boundary multipart automaticamente. Usato da §8.6 (uploads).
+  // Il backend si aspetta i form fields PRIMA del file part nel multipart
+  // (FormData del browser preserva l'ordine di append → vedi gotcha §10).
+  api.upload = async function uploadRequest(path, formData) {
+    const url = API_BASE + path;
+    log('req', 'POST', url, '(multipart)');
+    let res;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+      });
+    } catch (netErr) {
+      const err = new Error('Errore di rete. Controlla la connessione.');
+      err.status = 0;
+      err.cause = netErr;
+      log('err', 'POST', url, netErr.message);
+      throw err;
+    }
+    let data = null;
+    try { data = await res.json(); } catch { /* tolleriamo */ }
+    if (!res.ok) {
+      const err = new Error((data && data.message) || `Errore ${res.status}`);
+      err.status = res.status;
+      if (data && data.code) err.code = data.code;
+      log('err', 'POST', url, err.message);
+      throw err;
+    }
+    log('res', 'POST', url, data);
+    return data;
+  };
+
   // ─── SSE streaming POST ─────────────────────────────
   // Apre una richiesta POST verso un endpoint che risponde con
   // text/event-stream e invoca i callback `on[event](data)` per ogni
@@ -219,7 +254,15 @@
     return { data, error, loading, refresh };
   }
 
+  // L'origin del backend (senza il prefisso /api). Serve per costruire URL
+  // assolute degli allegati (es. <img src>): il backend ritorna `url: "/api/uploads/:id"`
+  // come path relativo, ma il browser deve prependere l'origin per la fetch
+  // cross-origin con cookie.
+  const API_ORIGIN = API_BASE.replace(/\/api$/, '');
+  api.attachmentSrc = (att) => API_ORIGIN + (att?.url ?? '');
+
   window.api = api;
   window.useApi = useApi;
   window.__API_BASE__ = API_BASE; // utile per debug da console
+  window.__API_ORIGIN__ = API_ORIGIN;
 })();

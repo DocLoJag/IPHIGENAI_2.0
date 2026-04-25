@@ -177,6 +177,8 @@ function TutorStudentPage({ studentId, user, showToast }) {
           <SessionsBlock items={recent_sessions} />
 
           <CompletionsBlock items={recent_completions} />
+
+          <AttachmentsBlock studentId={studentId} showToast={showToast} />
         </div>
 
         <aside className="stack" style={{ '--gap': '20px', position: 'sticky', top: 80 }}>
@@ -800,6 +802,168 @@ function NoteRow({ note, onChange, showToast }) {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+/* ─── Attachments (foto compiti, PDF) ────────────────────── */
+// Carica un file per lo studente + lista cronologica con thumbnail per le
+// immagini, icona PDF per i documenti. Soft-delete via DELETE (visibile solo
+// all'autore, qui Chiara — il tutor cancella solo i propri).
+function AttachmentsBlock({ studentId, showToast }) {
+  const { data, loading, error, refresh } = useApi(
+    `/uploads?student_id=${encodeURIComponent(studentId)}&limit=50`,
+  );
+  const [uploading, setUploading] = React.useState(false);
+  const fileInputRef = React.useRef(null);
+
+  const items = data?.items ?? [];
+
+  const onPick = () => {
+    if (uploading) return;
+    fileInputRef.current?.click();
+  };
+
+  const onFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      showToast('File troppo grande (max 10 MB).');
+      return;
+    }
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('student_id', studentId); // PRIMA del file part (gotcha multipart)
+      fd.append('file', file);
+      await api.upload('/uploads', fd);
+      showToast('File caricato.');
+      refresh();
+    } catch (err) {
+      showToast(`Errore upload: ${err.message}`);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div style={{ marginBottom: 36 }}>
+      <div className="row row--between" style={{ marginBottom: 14, borderBottom: '1.5px solid var(--ink)', paddingBottom: 8 }}>
+        <h2 style={{ fontSize: 22 }}>Allegati</h2>
+        <div className="row" style={{ gap: 10, alignItems: 'baseline' }}>
+          <span className="hand small muted">{items.length}</span>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif,application/pdf"
+            onChange={onFileChange}
+            style={{ display: 'none' }}
+          />
+          <button
+            className="btn btn--ghost"
+            disabled={uploading}
+            onClick={onPick}
+            style={{ fontSize: 12, padding: '4px 10px' }}
+          >
+            {uploading ? 'carico…' : '+ carica file'}
+          </button>
+        </div>
+      </div>
+      {loading ? (
+        <Skeleton h={80} />
+      ) : error ? (
+        <div className="card card--soft" style={{ padding: 14, color: 'var(--danger)' }}>
+          Errore: {error.message}
+        </div>
+      ) : items.length === 0 ? (
+        <div className="soft" style={{ fontFamily: 'var(--serif)', fontStyle: 'italic', padding: '8px 0' }}>
+          Nessun allegato. Carica una foto del compito o un PDF di consegna.
+        </div>
+      ) : (
+        items.map((a) => (
+          <AttachmentRow key={a.id} att={a} onChanged={refresh} showToast={showToast} />
+        ))
+      )}
+    </div>
+  );
+}
+
+function AttachmentRow({ att, onChanged, showToast }) {
+  const [busy, setBusy] = React.useState(false);
+  const isImage = att.mime?.startsWith('image/');
+  const isPdf = att.mime === 'application/pdf';
+  const sizeKb = Math.max(1, Math.round(att.size_bytes / 1024));
+
+  const remove = async () => {
+    if (!confirm(`Cancellare "${att.filename}"?`)) return;
+    setBusy(true);
+    try {
+      await api.del(`/uploads/${att.id}`);
+      showToast('File cancellato.');
+      onChanged();
+    } catch (e) {
+      showToast(`Errore: ${e.message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const open = () => {
+    // L'URL è cross-origin con cookie httpOnly. window.open lo include
+    // automaticamente perché è una top-level navigation (non una fetch).
+    window.open(api.attachmentSrc(att), '_blank', 'noopener,noreferrer');
+  };
+
+  return (
+    <div className="article-row">
+      <div
+        className="article-row__thumb"
+        style={{ cursor: 'pointer', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        onClick={open}
+        title="apri allegato"
+      >
+        {isImage ? (
+          <img
+            src={api.attachmentSrc(att)}
+            alt=""
+            crossOrigin="use-credentials"
+            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+          />
+        ) : isPdf ? (
+          <span style={{ fontFamily: 'var(--sans)', fontSize: 12, fontWeight: 600 }}>PDF</span>
+        ) : (
+          <span style={{ fontFamily: 'var(--sans)', fontSize: 11, fontWeight: 600 }}>FILE</span>
+        )}
+      </div>
+      <div className="article-row__body">
+        <div className="article-row__kicker">
+          {formatWhen(att.created_at)} · {sizeKb} KB
+        </div>
+        <a
+          href="#"
+          onClick={(e) => { e.preventDefault(); open(); }}
+          className="article-row__title"
+          style={{ textDecoration: 'none', color: 'inherit', cursor: 'pointer' }}
+        >
+          {att.filename}
+        </a>
+        <div className="article-row__meta" style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+          <span className="pill">{att.mime}</span>
+          {att.student_id && <span className="hand small muted">per studente</span>}
+        </div>
+      </div>
+      <div style={{ alignSelf: 'center' }}>
+        <button
+          className="btn btn--ghost"
+          disabled={busy}
+          onClick={remove}
+          style={{ fontSize: 12, padding: '4px 10px', color: 'var(--danger)' }}
+          title="cancella allegato (solo se è tuo)"
+        >
+          {busy ? '…' : 'cancella'}
+        </button>
+      </div>
     </div>
   );
 }

@@ -78,14 +78,16 @@ function TutorProposalsPage({ user, showToast }) {
 function GlobalProposalCard({ proposal: p, student, onChange, showToast }) {
   const [busy, setBusy] = React.useState(null);
   const [showReject, setShowReject] = React.useState(false);
+  const [showApproveForm, setShowApproveForm] = React.useState(false);
   const [reason, setReason] = React.useState('');
   const isPending = p.status === 'pending';
 
-  const approve = async () => {
+  const doApprove = async (override) => {
     setBusy('approve');
     try {
-      await api.post(`/tutor/proposals/${p.id}/approve`, {});
+      await api.post(`/tutor/proposals/${p.id}/approve`, override || {});
       showToast('Proposta approvata — task creato.');
+      setShowApproveForm(false);
       onChange();
     } catch (e) {
       showToast(`Errore: ${e.message}`);
@@ -152,32 +154,45 @@ function GlobalProposalCard({ proposal: p, student, onChange, showToast }) {
       )}
 
       {isPending ? (
-        <div className="row" style={{ gap: 8 }}>
-          <button className="btn btn--primary" disabled={busy !== null} onClick={approve}>
-            {busy === 'approve' ? 'creo…' : 'approva → crea task'}
-          </button>
-          {showReject ? (
-            <>
-              <input
-                className="input"
-                placeholder="perché? (opzionale)"
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                style={{ flex: 1, minWidth: 0 }}
-              />
-              <button className="btn" disabled={busy !== null} onClick={reject}>
-                {busy === 'reject' ? 'rifiuto…' : 'conferma rifiuto'}
-              </button>
-              <button className="btn btn--ghost" disabled={busy !== null} onClick={() => { setShowReject(false); setReason(''); }}>
-                annulla
-              </button>
-            </>
-          ) : (
-            <button className="btn btn--ghost" disabled={busy !== null} onClick={() => setShowReject(true)}>
-              rifiuta
+        showApproveForm ? (
+          <window.ActivityForm
+            initial={p}
+            onSubmit={doApprove}
+            onCancel={() => setShowApproveForm(false)}
+            submitLabel="approva con queste modifiche"
+            busy={busy === 'approve'}
+          />
+        ) : (
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+            <button className="btn btn--primary" disabled={busy !== null} onClick={() => doApprove({})}>
+              {busy === 'approve' ? 'creo…' : 'approva → crea task'}
             </button>
-          )}
-        </div>
+            <button className="btn" disabled={busy !== null} onClick={() => setShowApproveForm(true)}>
+              approva con modifiche…
+            </button>
+            {showReject ? (
+              <>
+                <input
+                  className="input"
+                  placeholder="perché? (opzionale)"
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  style={{ flex: 1, minWidth: 0 }}
+                />
+                <button className="btn" disabled={busy !== null} onClick={reject}>
+                  {busy === 'reject' ? 'rifiuto…' : 'conferma rifiuto'}
+                </button>
+                <button className="btn btn--ghost" disabled={busy !== null} onClick={() => { setShowReject(false); setReason(''); }}>
+                  annulla
+                </button>
+              </>
+            ) : (
+              <button className="btn btn--ghost" disabled={busy !== null} onClick={() => setShowReject(true)}>
+                rifiuta
+              </button>
+            )}
+          </div>
+        )
       ) : (
         <div className="hand small muted">
           {p.status === 'approved'

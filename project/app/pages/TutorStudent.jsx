@@ -1,4 +1,111 @@
 /* Tutor — scheda di un singolo studente */
+
+const ACTIVITY_KINDS = [
+  { v: 'review', l: 'review' },
+  { v: 'guided-reading', l: 'guided reading' },
+  { v: 'quick-test', l: 'quick test' },
+  { v: 'analysis', l: 'analysis' },
+  { v: 'writing', l: 'writing' },
+  { v: 'exercise-set', l: 'exercise set' },
+  { v: 'reading', l: 'reading' },
+];
+
+// datetime-local <input> usa formato "YYYY-MM-DDTHH:mm" in ora locale.
+// Il backend zod usa .datetime({offset:true}) che accetta Z (UTC).
+// Conversione bilanciata: per il display si toglie il fuso, per il payload si manda ISO UTC.
+function isoToLocalInput(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const offsetMs = d.getTimezoneOffset() * 60_000;
+  return new Date(d.getTime() - offsetMs).toISOString().slice(0, 16);
+}
+function localInputToIso(local) {
+  if (!local) return null;
+  return new Date(local).toISOString();
+}
+function formatScheduled(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  const now = new Date();
+  const future = d.getTime() > now.getTime();
+  const day = d.toLocaleDateString('it-IT', { weekday: 'short', day: '2-digit', month: 'short' });
+  const time = d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  return { label: `${day} · ${time}`, future };
+}
+
+/* ─── Form attività (riusato per crea / modifica / approve override) ── */
+function ActivityForm({ initial, onSubmit, onCancel, submitLabel, busy }) {
+  const [kind, setKind] = React.useState(initial?.kind || 'review');
+  const [subject, setSubject] = React.useState(initial?.subject || '');
+  const [title, setTitle] = React.useState(initial?.title || '');
+  const [kicker, setKicker] = React.useState(initial?.kicker || '');
+  const [minutes, setMinutes] = React.useState(initial?.estimated_minutes ?? '');
+  const [priority, setPriority] = React.useState(initial?.priority ?? 100);
+  const [scheduledLocal, setScheduledLocal] = React.useState(
+    initial?.scheduled_for ? isoToLocalInput(initial.scheduled_for) : '',
+  );
+
+  const submit = (e) => {
+    e.preventDefault();
+    if (!subject.trim() || !title.trim()) return;
+    const payload = {
+      kind,
+      subject: subject.trim(),
+      title: title.trim(),
+      kicker: kicker.trim() ? kicker.trim() : null,
+      estimated_minutes: minutes === '' ? null : Number(minutes),
+      priority: Number(priority) || 100,
+      scheduled_for: localInputToIso(scheduledLocal),
+    };
+    onSubmit(payload);
+  };
+
+  return (
+    <form onSubmit={submit} className="card card--soft" style={{ padding: 14, marginBottom: 14 }}>
+      <div className="row" style={{ gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+        <label className="hand small muted" style={{ display: 'flex', flexDirection: 'column', gap: 3, flex: '1 1 140px' }}>
+          tipo
+          <select className="input" value={kind} onChange={(e) => setKind(e.target.value)}>
+            {ACTIVITY_KINDS.map((k) => <option key={k.v} value={k.v}>{k.l}</option>)}
+          </select>
+        </label>
+        <label className="hand small muted" style={{ display: 'flex', flexDirection: 'column', gap: 3, flex: '1 1 140px' }}>
+          materia
+          <input className="input" value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="es. matematica" />
+        </label>
+      </div>
+      <label className="hand small muted" style={{ display: 'flex', flexDirection: 'column', gap: 3, marginBottom: 8 }}>
+        titolo
+        <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="es. Cinque domande sugli insiemi" />
+      </label>
+      <label className="hand small muted" style={{ display: 'flex', flexDirection: 'column', gap: 3, marginBottom: 8 }}>
+        kicker (descrizione breve)
+        <textarea className="input" value={kicker} onChange={(e) => setKicker(e.target.value)} rows={2} style={{ resize: 'vertical', fontFamily: 'var(--serif)' }} />
+      </label>
+      <div className="row" style={{ gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+        <label className="hand small muted" style={{ display: 'flex', flexDirection: 'column', gap: 3, flex: '1 1 90px' }}>
+          minuti
+          <input className="input" type="number" min="0" step="5" value={minutes} onChange={(e) => setMinutes(e.target.value)} />
+        </label>
+        <label className="hand small muted" style={{ display: 'flex', flexDirection: 'column', gap: 3, flex: '1 1 90px' }}>
+          priorità
+          <input className="input" type="number" min="0" step="10" value={priority} onChange={(e) => setPriority(e.target.value)} />
+        </label>
+        <label className="hand small muted" style={{ display: 'flex', flexDirection: 'column', gap: 3, flex: '2 1 200px' }}>
+          programmata per (vuoto = subito visibile)
+          <input className="input" type="datetime-local" value={scheduledLocal} onChange={(e) => setScheduledLocal(e.target.value)} />
+        </label>
+      </div>
+      <div className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
+        <button type="button" className="btn btn--ghost" onClick={onCancel} disabled={busy}>annulla</button>
+        <button type="submit" className="btn btn--primary" disabled={busy || !subject.trim() || !title.trim()}>
+          {busy ? '…' : submitLabel}
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function TutorStudentPage({ studentId, user, showToast }) {
   const { data: overview, loading: lOv, error: eOv, refresh: refreshOverview } =
     useApi(`/tutor/students/${studentId}/overview`);
@@ -55,6 +162,7 @@ function TutorStudentPage({ studentId, user, showToast }) {
           />
 
           <UpcomingBlock
+            studentId={studentId}
             items={upcoming_activities}
             onChange={refreshOverview}
             showToast={showToast}
@@ -150,13 +258,15 @@ function ProposalsBlock({ proposals, loading, onChange, showToast }) {
 function ProposalCard({ proposal: p, onChange, showToast }) {
   const [busy, setBusy] = React.useState(null); // 'approve' | 'reject' | null
   const [showReject, setShowReject] = React.useState(false);
+  const [showApproveForm, setShowApproveForm] = React.useState(false);
   const [reason, setReason] = React.useState('');
 
-  const approve = async () => {
+  const doApprove = async (override) => {
     setBusy('approve');
     try {
-      await api.post(`/tutor/proposals/${p.id}/approve`, {});
+      await api.post(`/tutor/proposals/${p.id}/approve`, override || {});
       showToast('Proposta approvata — task creato.');
+      setShowApproveForm(false);
       onChange();
     } catch (e) {
       showToast(`Errore: ${e.message}`);
@@ -207,44 +317,89 @@ function ProposalCard({ proposal: p, onChange, showToast }) {
           {p.rationale}
         </div>
       )}
-      <div className="row" style={{ gap: 8 }}>
-        <button className="btn btn--primary" disabled={busy !== null} onClick={approve}>
-          {busy === 'approve' ? 'creo…' : 'approva → crea task'}
-        </button>
-        {showReject ? (
-          <>
-            <input
-              className="input"
-              placeholder="perché? (opzionale)"
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              style={{ flex: 1, minWidth: 0 }}
-            />
-            <button className="btn" disabled={busy !== null} onClick={reject}>
-              {busy === 'reject' ? 'rifiuto…' : 'conferma rifiuto'}
-            </button>
-            <button className="btn btn--ghost" disabled={busy !== null} onClick={() => { setShowReject(false); setReason(''); }}>
-              annulla
-            </button>
-          </>
-        ) : (
-          <button className="btn btn--ghost" disabled={busy !== null} onClick={() => setShowReject(true)}>
-            rifiuta
+      {showApproveForm ? (
+        <ActivityForm
+          initial={p}
+          onSubmit={doApprove}
+          onCancel={() => setShowApproveForm(false)}
+          submitLabel="approva con queste modifiche"
+          busy={busy === 'approve'}
+        />
+      ) : (
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+          <button className="btn btn--primary" disabled={busy !== null} onClick={() => doApprove({})}>
+            {busy === 'approve' ? 'creo…' : 'approva → crea task'}
           </button>
-        )}
-      </div>
+          <button className="btn" disabled={busy !== null} onClick={() => setShowApproveForm(true)}>
+            approva con modifiche…
+          </button>
+          {showReject ? (
+            <>
+              <input
+                className="input"
+                placeholder="perché? (opzionale)"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                style={{ flex: 1, minWidth: 0 }}
+              />
+              <button className="btn" disabled={busy !== null} onClick={reject}>
+                {busy === 'reject' ? 'rifiuto…' : 'conferma rifiuto'}
+              </button>
+              <button className="btn btn--ghost" disabled={busy !== null} onClick={() => { setShowReject(false); setReason(''); }}>
+                annulla
+              </button>
+            </>
+          ) : (
+            <button className="btn btn--ghost" disabled={busy !== null} onClick={() => setShowReject(true)}>
+              rifiuta
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
 /* ─── Upcoming activities ───────────────────────────────── */
-function UpcomingBlock({ items, onChange, showToast }) {
+function UpcomingBlock({ studentId, items, onChange, showToast }) {
+  const [creating, setCreating] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
+
+  const create = async (payload) => {
+    setBusy(true);
+    try {
+      await api.post(`/tutor/students/${studentId}/activities`, payload);
+      showToast('Task creato.');
+      setCreating(false);
+      onChange();
+    } catch (e) {
+      showToast(`Errore: ${e.message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div style={{ marginBottom: 36 }}>
       <div className="row row--between" style={{ marginBottom: 14, borderBottom: '1.5px solid var(--ink)', paddingBottom: 8 }}>
         <h2 style={{ fontSize: 22 }}>In programma</h2>
-        <span className="hand small muted">{items.length} task attivi</span>
+        <div className="row" style={{ gap: 10, alignItems: 'baseline' }}>
+          <span className="hand small muted">{items.length} task attivi</span>
+          {!creating && (
+            <button className="btn btn--ghost" onClick={() => setCreating(true)} style={{ fontSize: 12, padding: '4px 10px' }}>
+              + nuovo task
+            </button>
+          )}
+        </div>
       </div>
+      {creating && (
+        <ActivityForm
+          onSubmit={create}
+          onCancel={() => setCreating(false)}
+          submitLabel="crea task"
+          busy={busy}
+        />
+      )}
       {items.length === 0 ? (
         <div className="soft" style={{ fontFamily: 'var(--serif)', fontStyle: 'italic', padding: '8px 0' }}>
           Nessun task in coda.
@@ -260,6 +415,8 @@ function UpcomingBlock({ items, onChange, showToast }) {
 
 function UpcomingRow({ a, onChange, showToast }) {
   const [busy, setBusy] = React.useState(false);
+  const [editing, setEditing] = React.useState(false);
+
   const dismiss = async () => {
     if (!confirm(`Scartare "${a.title}"?`)) return;
     setBusy(true);
@@ -273,6 +430,35 @@ function UpcomingRow({ a, onChange, showToast }) {
       setBusy(false);
     }
   };
+
+  const saveEdit = async (payload) => {
+    setBusy(true);
+    try {
+      await api.patch(`/tutor/activities/${a.id}`, payload);
+      showToast('Task aggiornato.');
+      setEditing(false);
+      onChange();
+    } catch (e) {
+      showToast(`Errore: ${e.message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (editing) {
+    return (
+      <ActivityForm
+        initial={a}
+        onSubmit={saveEdit}
+        onCancel={() => setEditing(false)}
+        submitLabel="salva"
+        busy={busy}
+      />
+    );
+  }
+
+  const sched = formatScheduled(a.scheduled_for);
+
   return (
     <div className="article-row">
       <div className="article-row__thumb placeholder">{a.subject.slice(0, 4)}</div>
@@ -281,18 +467,39 @@ function UpcomingRow({ a, onChange, showToast }) {
           {a.kicker || '—'}{a.prepared_by === 'tutor-chiara' ? ' · da te (legacy seed)' : ''}
         </div>
         <div className="article-row__title">{a.title}</div>
-        <div className="article-row__meta" style={{ display: 'flex', gap: 10, alignItems: 'baseline' }}>
+        <div className="article-row__meta" style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
           <span className="pill">{a.kind.replace('-', ' ')}{a.estimated_minutes ? ` · ${a.estimated_minutes}′` : ''}</span>
+          {sched && (
+            <span
+              className="pill"
+              style={sched.future
+                ? { background: 'var(--paper-warm)', borderColor: 'var(--accent-2)', color: 'var(--accent-2)' }
+                : undefined}
+              title={sched.future ? 'programmata — non ancora visibile allo studente' : 'già visibile allo studente'}
+            >
+              {sched.future ? '📅 ' : '⏱ '}{sched.label}
+            </span>
+          )}
         </div>
       </div>
-      <button
-        className="btn btn--ghost"
-        disabled={busy}
-        onClick={dismiss}
-        style={{ alignSelf: 'center', fontSize: 12, padding: '4px 10px' }}
-      >
-        {busy ? '…' : 'scarta'}
-      </button>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignSelf: 'center' }}>
+        <button
+          className="btn btn--ghost"
+          disabled={busy}
+          onClick={() => setEditing(true)}
+          style={{ fontSize: 12, padding: '4px 10px' }}
+        >
+          modifica
+        </button>
+        <button
+          className="btn btn--ghost"
+          disabled={busy}
+          onClick={dismiss}
+          style={{ fontSize: 12, padding: '4px 10px' }}
+        >
+          {busy ? '…' : 'scarta'}
+        </button>
+      </div>
     </div>
   );
 }
@@ -497,3 +704,4 @@ function NoteRow({ note, onChange, showToast }) {
 }
 
 window.TutorStudentPage = TutorStudentPage;
+window.ActivityForm = ActivityForm;

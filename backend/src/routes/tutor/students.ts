@@ -5,7 +5,7 @@
  * - GET  /tutor/students/:id/notebook            storico note curator
  */
 import type { FastifyInstance } from 'fastify';
-import { and, desc, eq, inArray, isNull, lte, or } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../../db/postgres.js';
 import {
@@ -17,9 +17,9 @@ import {
 } from '../../db/schema.js';
 import { collections } from '../../db/mongo.js';
 import { notFound } from '../../lib/errors.js';
-import { serializeActivity, serializeCompletion, serializeSession } from '../serializers.js';
+import { serializeCompletion, serializeSession } from '../serializers.js';
 import { assertTutorOwnsStudent } from './guards.js';
-import { serializeCuratorNote } from './serializers.js';
+import { serializeCuratorNote, serializeTutorActivity } from './serializers.js';
 
 const notebookQuery = z.object({
   limit: z.coerce.number().int().positive().max(100).default(20),
@@ -97,7 +97,9 @@ export default async function tutorStudentsRoutes(app: FastifyInstance) {
         .orderBy(desc(sessions.lastTouchedAt))
         .limit(10);
 
-      const now = new Date();
+      // Il tutor vede anche le activity programmate per il futuro (scheduled_for > now):
+      // serve per gestirle / modificarle / cancellarle. Lo studente invece vede solo
+      // quelle "attive ora" (filtro lte sta nel bundle home in routes/students.ts).
       const upcomingActivities = await db
         .select()
         .from(activities)
@@ -106,11 +108,10 @@ export default async function tutorStudentsRoutes(app: FastifyInstance) {
             eq(activities.studentId, studentId),
             isNull(activities.completedAt),
             isNull(activities.dismissedAt),
-            or(isNull(activities.scheduledFor), lte(activities.scheduledFor, now)),
           ),
         )
         .orderBy(activities.priority)
-        .limit(10);
+        .limit(20);
 
       const recentCompletions = await db
         .select()
@@ -134,7 +135,7 @@ export default async function tutorStudentsRoutes(app: FastifyInstance) {
           school: s.school,
         },
         recent_sessions: recentSessions.map(serializeSession),
-        upcoming_activities: upcomingActivities.map(serializeActivity),
+        upcoming_activities: upcomingActivities.map(serializeTutorActivity),
         recent_completions: recentCompletions.map(serializeCompletion),
         last_curator_note: lastCuratorNote ? serializeCuratorNote(lastCuratorNote) : null,
       };

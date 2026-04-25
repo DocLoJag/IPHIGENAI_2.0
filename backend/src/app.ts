@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import sensible from '@fastify/sensible';
 import rateLimit from '@fastify/rate-limit';
+import multipart from '@fastify/multipart';
 import { ZodError } from 'zod';
 import { env } from './config/env.js';
 import { AppError } from './lib/errors.js';
@@ -14,6 +15,7 @@ import humanThreadsRoutes from './routes/threads.js';
 import artifactsRoutes from './routes/artifacts.js';
 import adminRoutes from './routes/admin.js';
 import tutorRoutes from './routes/tutor/index.js';
+import uploadsRoutes from './routes/uploads.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -35,6 +37,19 @@ export async function buildApp(): Promise<FastifyInstance> {
   // Store in-memory: per il pilota è sufficiente; se in futuro l'API gira con
   // più repliche, passare a redis store usando il client già presente.
   await app.register(rateLimit, { global: false });
+
+  // Multipart parser per upload allegati. Limiti enforced qui:
+  //   - 1 file per richiesta (oltre rifiutato)
+  //   - 10 MB per file (rifiutato a livello stream, no CPU sprecata)
+  //   - 4 fields aggiuntivi (es. `student_id`)
+  // Il filtro MIME e l'ownership sono fatti dalla rotta /api/uploads.
+  await app.register(multipart, {
+    limits: {
+      fileSize: 10 * 1024 * 1024,
+      files: 1,
+      fields: 4,
+    },
+  });
 
   // Allowlist CORS: unione di FRONTEND_ORIGIN (legacy, singolo) e CORS_ALLOWED_ORIGINS (CSV).
   // Nessun wildcard: con credentials:true il browser rifiuta "*".
@@ -111,6 +126,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       await v1.register(artifactsRoutes);
       await v1.register(adminRoutes);
       await v1.register(tutorRoutes);
+      await v1.register(uploadsRoutes);
     },
     { prefix: '/api' },
   );

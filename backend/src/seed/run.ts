@@ -7,7 +7,7 @@
  */
 import { sql as rawSql } from '../db/postgres.js';
 import { db, closePostgres } from '../db/postgres.js';
-import { connectMongo, closeMongo, collections } from '../db/mongo.js';
+import { connectMongo, closeMongo, collections, mongo } from '../db/mongo.js';
 import {
   activities,
   activityProposals,
@@ -32,6 +32,7 @@ async function wipe(): Promise<void> {
        exercise_attempts, exercises,
        completions, activity_proposals, activities,
        tutor_notes,
+       attachments,
        messages, threads, ai_threads,
        topic_edges, topic_nodes,
        artifacts, sessions,
@@ -43,6 +44,16 @@ async function wipe(): Promise<void> {
   await collections.curatorNotebook().deleteMany({});
   await collections.aiMessages().deleteMany({});
   await collections.artifactBodies().deleteMany({});
+  // Bucket GridFS degli allegati: drop delle collezioni .files e .chunks.
+  // Sono droppate solo se esistono (drop su collezione inesistente throwa).
+  const db = mongo();
+  for (const name of ['attachments.files', 'attachments.chunks']) {
+    try {
+      await db.dropCollection(name);
+    } catch {
+      // collezione non esistente → ignora
+    }
+  }
 }
 
 /**

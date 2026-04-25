@@ -325,6 +325,38 @@ export const activityProposals = pgTable(
   }),
 );
 
+// ─── attachments (file caricati: foto compiti, PDF) ────────────────
+// Metadati Postgres; il binario sta su Mongo GridFS (bucket `attachments`).
+// `ownerId` = chi ha caricato il file (sempre user autenticato).
+// `studentId` = a quale studente è "associato" il file:
+//   - se l'owner è uno studente → coincide con ownerId
+//   - se l'owner è un tutor che carica per un proprio studente → l'id dello studente
+//   - admin: può puntare a qualunque studente o restare null
+// L'ownership di GET/DELETE è derivata da owner+student (vedi routes/uploads.ts).
+// Soft-delete via `deletedAt`: il binario su GridFS non viene cancellato subito
+// (cleanup deferred a un job futuro), così un eventuale undelete è banale.
+export const attachments = pgTable(
+  'attachments',
+  {
+    id: text('id').primaryKey(),
+    ownerId: text('owner_id')
+      .notNull()
+      .references(() => users.id),
+    studentId: text('student_id').references(() => users.id),
+    filename: text('filename').notNull(),
+    mime: text('mime').notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    // ObjectId GridFS, stringificato. Una sola riga per file: append-only.
+    gridfsId: text('gridfs_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  },
+  (t) => ({
+    byOwnerRecent: index('attachments_owner_recent').on(t.ownerId, t.createdAt),
+    byStudentRecent: index('attachments_student_recent').on(t.studentId, t.createdAt),
+  }),
+);
+
 // ─── tutor notes (appunti privati del tutor sullo studente) ────────
 export const tutorNotes = pgTable(
   'tutor_notes',
@@ -374,4 +406,5 @@ export type TopicEdgeRow = typeof topicEdges.$inferSelect;
 export type ArtifactRow = typeof artifacts.$inferSelect;
 export type TutorNoteRow = typeof tutorNotes.$inferSelect;
 export type ActivityProposalRow = typeof activityProposals.$inferSelect;
+export type AttachmentRow = typeof attachments.$inferSelect;
 export type JobLogRow = typeof jobLog.$inferSelect;

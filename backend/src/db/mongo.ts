@@ -1,8 +1,9 @@
-import { MongoClient, type Db, type Collection, type Document } from 'mongodb';
+import { GridFSBucket, MongoClient, type Db, type Collection, type Document } from 'mongodb';
 import { env } from '../config/env.js';
 
 let client: MongoClient | null = null;
 let database: Db | null = null;
+let attachmentsBucket: GridFSBucket | null = null;
 
 export async function connectMongo(): Promise<Db> {
   if (database) return database;
@@ -17,10 +18,21 @@ export function mongo(): Db {
   return database;
 }
 
+// Bucket GridFS per i file caricati. Lazy: lo creiamo al primo accesso.
+// Il bucket name è autoritativo: `attachments` → collezioni `attachments.files`
+// e `attachments.chunks` su Mongo.
+export function attachmentsGridFS(): GridFSBucket {
+  if (!attachmentsBucket) {
+    attachmentsBucket = new GridFSBucket(mongo(), { bucketName: 'attachments' });
+  }
+  return attachmentsBucket;
+}
+
 export async function closeMongo(): Promise<void> {
   if (client) await client.close();
   client = null;
   database = null;
+  attachmentsBucket = null;
 }
 
 // Schemi (solo a titolo documentale — Mongo non valida).

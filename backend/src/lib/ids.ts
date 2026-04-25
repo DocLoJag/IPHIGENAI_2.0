@@ -21,6 +21,7 @@ export const id = {
   artifact: () => `art-${randId(10)}`,
   tutorNote: () => `tnote-${randId(10)}`,
   proposal: () => `prop-${randId(10)}`,
+  attachment: () => `att-${randId(10)}`,
   node: () => `n-${randId(6)}`,
   user: (role: string, hint: string) =>
     `${role}-${hint.toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 24) || randId(6)}`,

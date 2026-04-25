@@ -2,7 +2,7 @@
 
 **Snapshot:** 2026-04-25
 **Owner:** Loris (DocLoJag / lojagannath@gmail.com) — **non sa programmare**: può verificare solo dal browser/UI. Tutta la parte tecnica (implementazione, git workflow, deploy, test E2E via curl) va portata end-to-end dall'agente. Non chiedere al owner scelte su merge/PR/push: scegli secondo il pattern del repo (push diretto su main) e procedi.
-**Fase:** pilota in preparazione, nessuno studente ancora collegato. **Tranche §8.1 (frontend ↔ backend reale) completata. Tranche §8.3-READ (tutor panel backend read-only) completata. Tranche §8.3-WRITE sotto-tranche 2 (tutor panel backend — activities CRUD) completata. Tranche §8.3-WRITE sotto-tranche 3 (tutor panel backend — note private tutor) completata. Tranche §8.3-AI-PROPOSE sotto-tranche 1 (tutor panel backend — proposte task: schema + API tutor approve/reject) completata. Tranche §10-CLEANUP (fix globale ZodError + wipe completo + split routes/tutor) completata. Tranche §8.3-AI-PROPOSE sotto-tranche 2 (curator genera proposte a fine sessione) completata: il loop "fine lezione → memoria → proposta → feed" è chiuso lato backend. Tranche §10.2-CLEANUP (pulizia pre-§8.3-UI: 7 micro-fix da audit profondo) completata. Tranche §8.3-UI sotto-tranche 1 (frontend tutor panel: home con lista studenti, scheda studente, coda proposte, note private) completata: Chiara ha finalmente la sua UI nel browser, niente più solo curl. Tranche §8.3-UI sotto-tranche 2 + §8.4 (scheduling activity da UI tutor: form crea/modifica con `scheduled_for`, override fields in approve proposta) completata: il loop "tutor programma per X → studente lo vede al momento giusto" è chiuso end-to-end. Tranche §8.5 (chat tutor AI in streaming SSE: i token compaiono progressivamente nel browser invece del salto da vuoto a completo) completata: la UX della chat è finalmente quella attesa. Tranche §8.3-UI sotto-tranche 3a (UI ripristino activity scartate) completata: il tutor può rimettere in coda task scartati per errore senza ricrearli da zero.**
+**Fase:** pilota in preparazione, nessuno studente ancora collegato. **Tranche §8.1 (frontend ↔ backend reale) completata. Tranche §8.3-READ (tutor panel backend read-only) completata. Tranche §8.3-WRITE sotto-tranche 2 (tutor panel backend — activities CRUD) completata. Tranche §8.3-WRITE sotto-tranche 3 (tutor panel backend — note private tutor) completata. Tranche §8.3-AI-PROPOSE sotto-tranche 1 (tutor panel backend — proposte task: schema + API tutor approve/reject) completata. Tranche §10-CLEANUP (fix globale ZodError + wipe completo + split routes/tutor) completata. Tranche §8.3-AI-PROPOSE sotto-tranche 2 (curator genera proposte a fine sessione) completata: il loop "fine lezione → memoria → proposta → feed" è chiuso lato backend. Tranche §10.2-CLEANUP (pulizia pre-§8.3-UI: 7 micro-fix da audit profondo) completata. Tranche §8.3-UI sotto-tranche 1 (frontend tutor panel: home con lista studenti, scheda studente, coda proposte, note private) completata: Chiara ha finalmente la sua UI nel browser, niente più solo curl. Tranche §8.3-UI sotto-tranche 2 + §8.4 (scheduling activity da UI tutor: form crea/modifica con `scheduled_for`, override fields in approve proposta) completata: il loop "tutor programma per X → studente lo vede al momento giusto" è chiuso end-to-end. Tranche §8.5 (chat tutor AI in streaming SSE: i token compaiono progressivamente nel browser invece del salto da vuoto a completo) completata: la UX della chat è finalmente quella attesa. Tranche §8.3-UI sotto-tranche 3a (UI ripristino activity scartate) completata: il tutor può rimettere in coda task scartati per errore senza ricrearli da zero. Tranche §8.6 sotto-tranche 1 (backend upload file: foto compiti, PDF) completata: lo studente o il tutor possono caricare file via `POST /api/uploads`, con storage GridFS su Mongo, auth/ownership cross-role e validation MIME/size — manca solo la UI per esporlo nel browser.**
 
 Questo documento serve a far ripartire un agente o una persona da zero sapendo esattamente dove siamo. Leggilo top-to-bottom — poi se vuoi lo schema di dettaglio passa a `IPHIGENAI_2_0_VISIONE.md` e `project/docs/`.
 
@@ -60,6 +60,37 @@ Punti non negoziabili:
   - `DELETE /api/tutor/notes/:id` → **hard delete** (sono appunti personali del tutor, non oggetti editoriali come activities che hanno soft-delete). Ritorna `{ok:true}` 200, oppure 404 se nota inesistente.
   - Validazione zod `.strict()` via helper `parseBody` (stesso workaround ZodError delle rotte activities).
   - Verifiche E2E contro Railway (32 casi): happy path completo (POST x3, GET lista+limit, PATCH con controllo updated_at > created_at, DELETE con 404 sul secondo tentativo); auth (luca→403, admin→403, senza cookie→401); validation (body vuoto→400, body mancante→400, campo extra→400 strict, body tipo sbagliato→400 sia POST che PATCH); 404 (studente fantasma, nota inesistente); regressione (GET /tutor/students, /overview, /notebook, home studente tutti 200). Stato demo ripulito con `/admin/reset-demo` dopo i test.
+- [x] **Upload file — backend §8.6 sotto-tranche 1** (2026-04-25, commit `4a49519` su PR #3). Apre il primo gap reale lato pilota dopo la chiusura della chat AI streaming: lo studente fotografa un esercizio (o il tutor allega un PDF di consegna) e il file gira nel sistema. Solo backend in questa sotto-tranche; UI e integrazione AI vengono dopo.
+  - **Storage**. Metadati su Postgres (nuova tabella `attachments`: id, owner_id, student_id nullable, filename, mime, size_bytes, gridfs_id, created_at, deleted_at, indici `(owner_id, created_at)` e `(student_id, created_at)`). Migration `0004_milky_vin_gonzales.sql` additiva. Binario su Mongo GridFS, bucket `attachments` (collezioni `attachments.files` + `attachments.chunks`). Decisione: niente S3/R2 per ora — Mongo già provisioned su Railway, zero nuovi servizi/credenziali, coerente con il pattern "Mongo per dati non strutturati" di §6.8.
+  - **Endpoint additivi** in `backend/src/routes/uploads.ts`:
+    - `POST /api/uploads` (multipart, auth richiesta) — accetta `file` + opzionale form field `student_id` (deve precedere il file part). Stream diretto in GridFS senza buffer in memoria. Validazione MIME (whitelist `image/png|jpeg|webp|gif`, `application/pdf`) + size 10 MB enforced via `@fastify/multipart` limits. Ritorna 201 con `{id, url, filename, mime, size_bytes, owner_id, student_id, created_at, deleted_at:null}`.
+    - `GET /api/uploads/:id` — stream del binario, `Content-Type` dal mime salvato, `Content-Disposition: inline` (browser renderizza immagine/PDF), `Cache-Control: private, max-age=3600`.
+    - `GET /api/uploads/:id/meta` — JSON dei soli metadati.
+    - `GET /api/uploads?student_id=&limit=` — lista filtrata per ruolo: studente vede i propri (ownerId=self), tutor vede quelli del proprio studente (filtro `student_id` obbligatorio, altrimenti `[]` per non-rischiare cross-student), admin vede tutto. Esclude soft-deleted via `isNull(deletedAt)`.
+    - `DELETE /api/uploads/:id` — soft-delete (`deletedAt=now()`), binario GridFS resta per audit/undelete (cleanup deferred). Solo owner o admin. Secondo DELETE → `{ok:true, already_deleted:true}`.
+  - **Auth/ownership** (`assertCanAccessAttachment` in routes/uploads.ts):
+    - admin → tutto.
+    - owner → tutto sui propri file.
+    - studente → i propri (ownerId=self) **+** quelli con `student_id=self` (così il tutor può "caricare per Luca" e Luca vede in `/uploads`).
+    - tutor → quelli con `student_id` di un proprio studente; admin verifica via join `students.tutorId`.
+    - DELETE: solo owner o admin (il tutor che ha accesso in lettura non cancella file altrui).
+  - **Validazione student_id in upload** (`resolveStudentIdForUpload`): student può solo dichiarare se stesso (default deriva auto a `me.sub` se non passato); tutor deve possedere lo studente target (`students.tutorId === me.sub`) altrimenti 403; admin liberamente, ma lo studente deve esistere altrimenti 400 `STUDENT_NOT_FOUND`. Risoluzione fatta PRIMA dello stream a GridFS — niente blob orfani in caso di rifiuto.
+  - **Wipe seed esteso** in `seedDemo()`: `attachments` aggiunto al TRUNCATE Postgres; `attachments.files` e `attachments.chunks` droppate da Mongo (try/catch su collezioni inesistenti). Verificato: dopo `reset-demo` la lista uploads di Luca è vuota.
+  - **Nuova dipendenza**: `@fastify/multipart` ^10.0.0 (compatibile Fastify 5). Registrato in `app.ts` con `limits: { fileSize: 10 MB, files: 1, fields: 4 }`.
+  - **Verifiche E2E** contro Railway (20 casi, dopo merge + redeploy):
+    - Happy path: PNG 68 byte e PDF 212 byte caricati come Luca (studente) → 201 con `student_id` auto-derivato a `student-luca`. GET binario → byte-by-byte match con l'originale (`cmp`); `Content-Type` corretto. GET meta → JSON identico al body del POST.
+    - Validation: `Content-Type: application/json` → 400 `NOT_MULTIPART`; file `text/plain` → 400 `MIME_NOT_ALLOWED`; multipart con solo `student_id` (no file) → 400 `FILE_MISSING`; file 11 MB con MIME `image/png` → 400 `FILE_TOO_LARGE` (multipart limits enforce); senza cookie → 401 `AUTH_REQUIRED`.
+    - Cross-role: Chiara (tutor) carica per `student-luca` → 201 con `owner_id=tutor-chiara`, `student_id=student-luca`. Chiara legge file di Luca → 200 (ownership tutor→student). Chiara DELETE file di Luca → 403 (`Solo l'autore può cancellare`). Chiara con `student_id=student-fake` → 400 `STUDENT_NOT_FOUND`. Chiara senza `student_id` → 201 con `student_id=null` (file "personale" del tutor, non legato a uno studente).
+    - Lista: lista uploads Luca → 2 file (i suoi). Lista chiara senza `student_id` → `{items:[],total:0}`. Lista chiara con `student_id=student-luca` → 3 file (incluso quello caricato da lei per Luca).
+    - Soft-delete: DELETE owner Luca → `{ok:true}`; secondo DELETE → `{ok:true, already_deleted:true}`; GET dopo soft-delete → 404 (sia binario sia meta); GET id fantasma → 404.
+    - Visibilità incrociata: Luca legge file caricato da Chiara per lui (student_id=luca) → 200. Luca tenta GET file privato di Chiara (student_id=null) → 403.
+    - Regressione: `/health`, `/api/students/me/home`, `/api/tutor/students`, `/api/tutor/students/student-luca/overview` tutti 200 dopo `reset-demo`.
+  - **Cosa NON c'è in questa sotto-tranche** (per scope): UI di upload (composer chat AI con paperclip; pannello tutor che mostra allegati di uno studente); integrazione con Anthropic come content blocks `image`/`document` (la prossima sotto-tranche è quella che dà valore reale: lo studente fotografa un esercizio e l'AI lo legge); cleanup deferred dei blob GridFS soft-deleted (oggi restano per sempre — un job batch che cancella `att.deleted_at < now() - 30d` + il blob GridFS corrispondente è 30 righe ma non urgente); rate-limit specifico sul `/uploads` (eredita assente, eventualmente da aggiungere se finisce nel feed pubblico); checksum/dedup (se Luca ricarica lo stesso file, oggi crea due `attachments`, semantica accettabile per il pilota).
+  - **Gotcha rilevate**:
+    - `@fastify/multipart` 10 con `attachFieldsToBody=false` non garantisce ordine field ↔ file. Convenzione documentata nella rotta: il client deve mettere `student_id` PRIMA del file part nel body multipart, perché iteriamo le parts in ordine d'arrivo. È l'ordine standard di `FormData.append()` nel browser; documentato nel commento.
+    - Su Windows + Git Bash + curl, i path `/tmp/...` non vengono risolti automaticamente da curl (è curl mingw32 nativo, non quello di MSYS). Per i test E2E con `-F file=@...` serve usare il path Windows assoluto (es. `C:/Users/LoJag/AppData/Local/Temp/test.png`). Salvato come pattern per i prossimi test multipart da bash su Windows.
+    - GridFS `openUploadStream(filename, { metadata, contentType })` ritorna `{id: ObjectId}`; serializzo come stringa via `upload.id.toString()` per metterlo in Postgres come `text`. Il riassemblaggio è `new ObjectId(gridfsId)` al GET.
+
 - [x] **Tutor panel UI — sotto-tranche 3a: ripristino activity scartate** (2026-04-25). Backend lo supportava già da §8.3-WRITE st2 (`PATCH /api/tutor/activities/:id` accetta `{dismissed_at: null}` per azzerare la dismissione). Mancava un endpoint per *vedere* gli scartati e l'UI per ripescarli.
   - **Backend** (additivo, una sola rotta in `routes/tutor/students.ts`): `GET /api/tutor/students/:id/dismissed-activities?limit=` ritorna le activity con `dismissedAt IS NOT NULL AND completedAt IS NULL`, ordinate `dismissedAt DESC`, default 20 (max 100). `serializeTutorActivity` espone già `dismissed_at`. Non incluso nel bundle `/overview` perché è una vista "di servizio" — il tutor lo apre solo quando vuole ripescare.
   - **Frontend** (`pages/TutorStudent.jsx`): nuovo blocco `DismissedBlock` sotto "In programma". Parte chiuso (bottone `mostra`/`nascondi`); il fetch parte solo quando aperto via `useApi(..., { enabled: open })`. Riga con titolo barrato + opacity ridotta + bottone `ripristina` che fa `PATCH /tutor/activities/:id` con `{dismissed_at: null}`. Dopo il ripristino refresh-a sia la lista scartati sia l'overview (la activity riappare in "In programma").
@@ -156,7 +187,7 @@ Punti non negoziabili:
 - [x] Tutor panel UI sotto-tranche 1 (home studenti, scheda studente con proposte/note/upcoming, coda proposte cross-student) — fatto. Manca: form create activity manuale, edit activity, override fields in approve, notebook curator paginato esteso, UI admin.
 - [ ] Scheduling attività automatiche (BullMQ job one-shot su `scheduled_for`)
 - [x] SSE streaming per la chat AI — fatto §8.5 (2026-04-25). Token-by-token nel browser, fallback POST sync, persistenza Mongo identica.
-- [ ] Upload file (PDF, foto compiti, materiali esterni)
+- [x] Upload file backend (PDF, foto compiti, materiali esterni) — fatto §8.6-st1 (2026-04-25). Endpoint POST/GET/DELETE su `/api/uploads` + GridFS storage. Manca: UI di upload nel composer chat e nel pannello tutor (§8.6-st2), e poi integrazione come `image`/`document` content block all'Anthropic (§8.6-st3).
 - [ ] Frontend deployato su un dominio pubblico (oggi gira solo in locale per dev)
 
 ---
@@ -204,6 +235,7 @@ Punti non negoziabili:
           ├── routes/
           │   ├── auth.ts, students.ts, sessions.ts
           │   ├── ai-threads.ts, threads.ts, artifacts.ts, admin.ts
+          │   ├── uploads.ts            ← upload allegati (§8.6-st1, GridFS)
           │   └── tutor/                ← sotto-dominio tutor panel (split 2026-04-24)
           │       ├── index.ts          — entry, registra i 4 sub-router
           │       ├── guards.ts         — asserts ownership + zod kind
@@ -222,6 +254,7 @@ Punti non negoziabili:
 ### Storia commit (ultimi a testa)
 
 ```
+4a49519 feat(backend): upload file — backend §8.6 sotto-tranche 1 (#3)
 6283e0e feat: chat tutor AI in streaming SSE — §8.5
 f238ec6 feat: §8.3-UI sotto-tranche 2 — scheduling + crea/modifica activity da tutor panel
 9ea04cd docs: HANDOFF — tranche §8.3-UI sotto-tranche 1 chiusa (tutor panel UI)
@@ -498,6 +531,26 @@ Cosa non è in questa tranche, da valutare se servirà:
 - Pulsante "ferma generazione" (richiede AbortController nel fetch e endpoint che chiuda lo stream lato server). 30 righe ma non richiesto dall'uso.
 - SSE su altre rotte (`POST /sessions/:id/answer`, `POST /threads/:id/messages`). Restano sync — nessuna esigenza finora.
 
+### 8.6 Upload file (foto compiti, PDF, materiali)
+
+Apre il prossimo gap reale per la lezione: lo studente fotografa un esercizio dal libro / un compito, lo carica e finisce (a) come allegato che il tutor umano può vedere nel pannello, (b) come `image`/`document` content block che la chat AI può leggere. Spezzata in tre sotto-tranche perché è un'aggiunta sostanziale e ogni pezzo è valutabile da solo.
+
+- [x] **§8.6 sotto-tranche 1 — backend storage + endpoint** (2026-04-25, commit `4a49519` su PR #3). Schema `attachments` Postgres + GridFS Mongo (bucket `attachments`) + 5 endpoint sotto `/api/uploads` (POST multipart, GET binario, GET meta, GET lista, DELETE soft). Auth/ownership cross-role + validation MIME/size. Verificato E2E con 20 casi contro Railway. Dettagli in §2.
+- [ ] **§8.6 sotto-tranche 2 — UI upload**:
+  - Composer chat AI: paperclip che apre il file picker, anteprima inline dell'immagine/PDF prima di inviare, append dell'attachment al messaggio (al backend va l'`attachment_id` + il testo come oggi).
+  - Pannello tutor / scheda studente: nuova sezione "Allegati" con lista cronologica + thumbnail (`<img>` per le immagini puntando a `/api/uploads/:id`); bottone caricare allegato per uno studente specifico.
+  - Lato studente: piccola sezione/icona nel feed per "i tuoi file" (la cassetta o un tab dedicato — decisione UX rimandata a quel momento).
+- [ ] **§8.6 sotto-tranche 3 — integrazione AI**:
+  - Quando un messaggio studente contiene `attachment_ids`, il backend converte i blob (immagini → `image` block base64; PDF → `document` block base64 con encoding citazioni) e li passa all'array `messages` Anthropic. Modello supportato per i `document` blocks: Sonnet 4 con feature `document` (la 4.5 e 4.6 lo supportano nativamente).
+  - Schema messaggio thread esteso lato Mongo (`ai_messages`) per memorizzare gli `attachment_ids` per ricostruire la conversazione.
+  - Stessi guard di auth/ownership: lo studente può allegare solo file suoi (ownerId=self o studentId=self).
+
+Decisioni prese:
+- **Storage**: Mongo GridFS (vedi §6.8). Niente S3/R2 per ora — Mongo è già provisioned su Railway, le foto compiti del pilota sono ~1-3 MB, il throughput è basso (un singolo studente). Quando il numero di studenti cresce e il binario diventa significativo, switchare a S3/R2 è additivo (cambiare solo `services/storage.ts`, le rotte non vedono il dettaglio).
+- **MIME whitelist**: `image/png|jpeg|webp|gif`, `application/pdf`. Niente HEIC (foto da iPhone) — il browser su iOS converte già a JPEG quando si usa il file picker. Niente Word/PowerPoint/Excel — fuori scope per la lezione.
+- **Size cap 10 MB**: sufficiente per una foto buona o un PDF di esercizi. Se un PDF è più grande, va spezzato manualmente.
+- **Soft-delete**: cancellare il blob GridFS dietro a un DELETE semantico (hard delete) sembra elegante ma renderebbe l'undelete impossibile e in più potrebbe lasciare riferimenti orfani in messaggi della chat AI già inviati al modello. Soft-delete + cleanup batch deferred è la scelta sicura.
+
 ---
 
 ## 9. Punti aperti (decisioni da prendere)
@@ -541,6 +594,7 @@ Cosa non è in questa tranche, da valutare se servirà:
 - **curl su bash Windows + UTF-8 multibyte**: passando `-d '{"text":"qualcosa con — em-dash o accenti"}'` da Bash su Windows si può ottenere un 500 con `"Request body size did not match Content-Length"`. È un mismatch tra il calcolo `Content-Length` di curl (su byte) e l'encoding del payload prima del trasporto. Workaround per i test E2E manuali: usare ASCII puro, oppure passare il body via `--data-binary @file.json` con un file UTF-8.
 - **`@fastify/rate-limit` con `global:false`**: registrato senza scope globale, va attivato per-rotta con `config.rateLimit`. Se in futuro si vuole un default su tutto il pubblico (es. una soglia anti-abuso generica), togliere `global:false` ma poi fare opt-out esplicito sulle rotte più chiamate (home studente fa polling). Store oggi è in-memory: con più repliche API serve switchare a redis store (riusare il client `redis()` già presente).
 - **SSE in Fastify 5 — `reply.send(Readable.from(asyncGenerator))` invece di `reply.hijack()`**: per `text/event-stream` la tentazione è chiamare `reply.hijack()` e scrivere su `reply.raw` direttamente. Funziona ma ti porta a riscrivere a mano `Access-Control-Allow-Origin`/`Access-Control-Allow-Credentials`/`Vary` (i plugin CORS settano gli header sulla `reply` Fastify, non sul raw socket). Più pulito: lasciare che Fastify gestisca gli header (cookie/CORS/keep-alive) e passare uno stream Node.js come body — `reply.send(Readable.from(asyncGenerator()))` fa pipe sul socket con Transfer-Encoding chunked, e ogni `yield` del generator viene inviato subito al client. Nello stesso pattern: `reply.header('Content-Type', 'text/event-stream; charset=utf-8')` + `Cache-Control: no-cache, no-transform` + `X-Accel-Buffering: no` (paranoia anti-proxy). Errori PRIMA del primo `yield` ricadono nel `setErrorHandler` globale (status JSON normale); errori DOPO il primo `yield` non possono cambiare lo status — vanno catchati dentro il generator e notificati come `event: error`.
+- **curl mingw32 su Windows + multipart `-F file=@/tmp/...`**: il curl in `Git for Windows` è il binario nativo `mingw32`, non passa per il file-system di MSYS. Quindi `/tmp/test.png` (path stile bash) **non viene risolto** — curl ritorna exit 26 (`Read error`) con HTTP 000. Per i test E2E multipart da bash su Windows servono path Windows assoluti (es. `C:/Users/.../AppData/Local/Temp/test.png`). Per generare il file mantengo bash (`printf '...' > /tmp/x.png`) ma per `curl -F` uso il path Windows. Salvato come pattern.
 - **HTML `<button>` senza `type` esplicito è `type="submit"` di default**. Selettori automatici lato test (es. preview MCP `eval`) tipo `btns.find(b => b.type === 'submit')` pescano qualunque bottone della topbar prima del button reale del form della chat, e l'effetto collaterale è la navigazione via (`onClick={onBack}`). Per gli E2E browser su un form specifico, sottomettere il form col selettore parent (`document.querySelector('.composer').requestSubmit()`) o restringere il selettore al sottoalbero (`form.composer button[type=submit]`).
 
 ---
@@ -650,7 +704,8 @@ Se sei Claude (o un'altra persona) che deve continuare:
 6. Chiedi al user quale tranche vuole aprire (vedi §8).
 
 **Prossime tranche candidate** (in ordine di priorità strategica):
-- **Upload file (PDF, foto compiti, materiali esterni)** — citato in §2 "manca per far girare davvero il pilota". Ora che chat AI streaming è chiusa, questo è il prossimo gap reale per la lezione: lo studente fotografa un esercizio e lo manda al tutor AI / al tutor umano. Richiede multipart, storage (S3/R2 o Mongo GridFS), serving, e un componente UI di upload.
+- **§8.6 sotto-tranche 2 — UI upload** (composer chat AI con paperclip, pannello tutor con sezione Allegati, anteprima immagini/PDF). Dopo backend chiuso, questo è il pezzo che rende il file caricabile *dal browser* invece che con curl.
+- **§8.6 sotto-tranche 3 — integrazione AI** (gli allegati immagine/PDF passano come content block ad Anthropic, così la chat AI legge la foto del compito). È la tranche che dà il valore vero.
 - **§8.3-UI sotto-tranche 3b** — notebook curator paginato esteso (oggi solo l'ultima nota), UI admin minimale. Da fare quando l'uso reale lo richiede. (St3a — ripristino scartati — già fatta.)
 - **Compliance pre-pilota (§12 visione)** — DPIA, TIA, modulo consenso parentale aggiornato, diritti dell'interessato in UI. Non è una tranche di codice ma è il vero blocker per introdurre studenti reali.
 - **§8.2 Porting a Next.js** — infrastrutturale, rimandabile finché il pilota può girare con l'attuale frontend statico.
